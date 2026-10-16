@@ -26,7 +26,10 @@ from asisten_bei import indikator as ind
 from asisten_bei.config import Config, baca_yaml, validasi_dict
 from asisten_bei.data import kualitas
 from asisten_bei.data.provider import ke_ts
-from asisten_bei.data.tampilan import DataPasar, DataSaham, DataView, LookAheadError
+from asisten_bei.data.tampilan import DataPasar, DataSaham, DataView, LookAheadError, bangun_data_saham
+from asisten_bei.inputs import Akun, Masukan, SahamUniverse
+from asisten_bei.kondisi_pasar import hitung_kondisi_pasar
+from asisten_bei.universe import AturanUniverse, nilai_eligibilitas
 from asisten_bei.kalender import Kalender
 
 AKAR_PROYEK = Path(__file__).resolve().parents[1]
@@ -395,6 +398,58 @@ def test_t_la1a_lewat_dataview(pasar):
                 pd.testing.assert_series_equal(b, indikator_t.loc[t], check_exact=True)
             else:
                 assert b is None
+
+
+# ---------------------------------------------------------------------------
+# T-LA1a: status pasar dan eligibilitas (potong vs penuh)
+# ---------------------------------------------------------------------------
+
+CFG_PASAR = _cfg({"kondisi_pasar.min_saham_breadth": 2, "likuiditas.nilai_transaksi_min_idr": 500_000_000})
+
+
+def _pasar_sampai(akhir: date, potong: bool) -> DataPasar:
+    """DataPasar dari data penuh (akhir run = AKHIR_RUN) atau dari data yang dipotong ≤ `akhir`."""
+    batas = ke_ts(akhir)
+
+    def bangun(kode: str) -> DataSaham:
+        mentah, split = MENTAH[kode], SPLIT[kode]
+        if potong:
+            mentah = mentah[mentah.index <= batas]
+            split = split[split.index <= batas]
+        return bangun_data_saham(
+            kode, mentah, split, adalah_indeks=_indeks(kode), kalender=KAL, cfg=CFG_PASAR,
+            anomali_ok=ANOMALI_OK, akhir=akhir if potong else AKHIR_RUN,
+        )
+
+    return DataPasar({k: bangun(k) for k in SAHAM}, bangun("IHSG"), KAL, CFG_PASAR)
+
+
+def test_t_la1a_status_pasar_dan_eligibilitas_potong_sama_dengan_penuh():
+    penuh = _pasar_sampai(AKHIR_RUN, potong=False)
+    masukan = Masukan(
+        universe=[SahamUniverse(k, k, "S" + k) for k in SAHAM], breadth=list(SAHAM), riwayat=None,
+        exclude=[], portofolio=[], akun=Akun(Decimal(3_000_000), None, False),
+    )
+    aturan = AturanUniverse.live(masukan)
+    hari = KAL.indeks_hari_bursa(date(2023, 6, 1), date(2025, 6, 30))
+    rng = np.random.default_rng(SEED + 4)
+    pilihan = sorted({hari[int(i)] for i in rng.integers(0, len(hari), 140)})
+    # Tanggal kritis: sekitar bar IHSG bolong, anomali, split, dan sesudah data berakhir.
+    pilihan = sorted({*pilihan, *(HARI[p] for p in (300, 301, 380, 381, 500, 503, 504, 505, 599)),
+                      ke_ts(date(2025, 5, 2))})
+    status_terlihat, alasan_terlihat = set(), set()
+    for t in pilihan:
+        d = t.date()
+        a, b = penuh.tampilan(d), _pasar_sampai(d, potong=True).tampilan(d)
+        kp_a, kp_b = hitung_kondisi_pasar(a, SAHAM), hitung_kondisi_pasar(b, SAHAM)
+        assert kp_a == kp_b, d
+        el_a, el_b = nilai_eligibilitas(a, aturan), nilai_eligibilitas(b, aturan)
+        assert el_a == el_b, d
+        status_terlihat.add(kp_a.aturan)
+        alasan_terlihat.update(s.alasan for s in el_a.status.values())
+    # Uji tidak hampa: beberapa cabang status dan alasan eligibilitas benar-benar muncul.
+    assert len(status_terlihat) >= 2, status_terlihat
+    assert {None, "DATA_BASI", "ANOMALI"} <= alasan_terlihat, alasan_terlihat
 
 
 # ---------------------------------------------------------------------------

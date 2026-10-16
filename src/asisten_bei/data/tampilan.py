@@ -272,6 +272,23 @@ class TampilanSeri:
             return math.nan
         return float(nilai.iloc[pos])
 
+    def jumlah_bar_valid(self, termasuk_as_of: bool = True) -> int:
+        """Banyak bar valid ≤ as_of (atau < as_of bila `termasuk_as_of=False`)."""
+        n_le = self._jumlah("valid")
+        if termasuk_as_of:
+            return n_le
+        return int(np.searchsorted(self._kunci.valid[:n_le], self._as_of_ns, side="left"))
+
+    def ada_bar_valid(self) -> bool:
+        """True bila ada bar valid tepat pada as_of."""
+        return self.jumlah_bar_valid(True) > self.jumlah_bar_valid(False)
+
+    def jumlah_bar_valid_sejak(self, mulai: date | pd.Timestamp | str) -> int:
+        """Banyak bar valid dengan tanggal dalam [mulai, as_of]."""
+        n_le = self._jumlah("valid")
+        pos = int(np.searchsorted(self._kunci.valid[:n_le], _ts_ns(mulai), side="left"))
+        return max(n_le - pos, 0)
+
     def hhv_sejak(self, mulai: date, sampai: date | None = None) -> float:
         """`HHV_sejak_entry(high)` atas bar valid mulai..sampai (inklusif; sampai default as_of)."""
         if sampai is None:
@@ -379,6 +396,15 @@ class DataView:
     def hhv_sejak(self, kode: str, mulai: date, sampai: date | None = None) -> float:
         return self.seri(kode).hhv_sejak(mulai, sampai)
 
+    def jumlah_bar_valid(self, kode: str, termasuk_as_of: bool = True) -> int:
+        return self.seri(kode).jumlah_bar_valid(termasuk_as_of)
+
+    def ada_bar_valid(self, kode: str) -> bool:
+        return self.seri(kode).ada_bar_valid()
+
+    def jumlah_bar_valid_sejak(self, kode: str, mulai: date | pd.Timestamp | str) -> int:
+        return self.seri(kode).jumlah_bar_valid_sejak(mulai)
+
     def tanda(self, kode: str) -> pd.Series | None:
         return self.seri(kode).tanda()
 
@@ -408,3 +434,50 @@ class DataView:
     def ihsg_baris(self, d: date | pd.Timestamp | str | None = None) -> pd.Series | None:
         tampil = self.ihsg()
         return None if tampil is None else tampil.baris(d)
+
+
+# ---------------------------------------------------------------------------
+# Pembangun DataSaham (dipakai run harian, backtest, dan uji)
+# ---------------------------------------------------------------------------
+
+
+def bangun_data_saham(
+    kode: str,
+    mentah: pd.DataFrame,
+    split: pd.Series | None,
+    *,
+    adalah_indeks: bool,
+    kalender: "Kalender",
+    cfg: "Config",
+    anomali_ok: set[tuple[str, date]],
+    akhir: date,
+    status_ambil: str = "OK",
+    jenis_error: str | None = None,
+    pesan: str = "",
+    sumber: str = "yfinance",
+    alasan_seri: str | None = None,
+    csv_pengganti_penuh: bool = False,
+) -> DataSaham:
+    """`DataSaham` dari bar cache (ruang tersesuaikan, sudah lolos `validasi_struktur`) + seri split:
+    validasi per bar (§8.5), indikator (§9), dan tanda as-of sampai `akhir` run. `akhir` wajib sama
+    untuk semua simbol satu run (ditegakkan `DataPasar`)."""
+    from .. import indikator as ind
+    from . import kualitas
+
+    seri = kualitas.validasi_bar(mentah, split, kode, adalah_indeks, kalender)
+    hitung = ind.hitung_indikator_indeks if adalah_indeks else ind.hitung_indikator
+    return DataSaham(
+        kode=kode,
+        adalah_indeks=adalah_indeks,
+        status_ambil=status_ambil,
+        jenis_error=jenis_error,
+        pesan=pesan,
+        sumber=sumber,
+        mentah=seri.mentah,
+        valid=seri.valid,
+        split=seri.split,
+        indikator=hitung(seri.valid, cfg),
+        tanda=kualitas.hitung_tanda_asof(seri, kalender, cfg, anomali_ok, akhir),
+        alasan_seri=alasan_seri,
+        csv_pengganti_penuh=csv_pengganti_penuh,
+    )
