@@ -1,0 +1,18 @@
+# Versi dipin ke versi yang diuji saat implementasi (SPEC §19.1).
+# Upgrade yfinance hanya setelah uji cepat SPEC §22.3.
+pandas==3.0.6
+numpy==2.5.4
+yfinance==1.7.0
+pyarrow==26.0.0
+PyYAML==6.0.3
+pydantic==2.14.1
+python-dotenv==1.2.4
+requests==2.34.2
+Jinja2==3.1.6
+matplotlib==3.11.2
+mplfinance==0.12.10b0
+openpyxl==3.1.5
+rich==15.0.0
+filelock==4.2.0
+tzdata==2026.5
+pytest==9.1.1

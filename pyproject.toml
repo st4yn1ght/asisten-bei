@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "asisten-bei"
+version = "0.1.0"
+description = "Asisten keputusan saham BEI untuk pemakaian pribadi. BUKAN SARAN INVESTASI."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "pandas", "numpy", "yfinance", "pyarrow", "pyyaml", "pydantic", "python-dotenv",
+    "requests", "jinja2", "matplotlib", "mplfinance", "openpyxl", "rich", "filelock", "tzdata",
+]
+
+[project.optional-dependencies]
+uji = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+asisten_bei = ["laporan/templates/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
