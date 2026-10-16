@@ -31,6 +31,7 @@ from asisten_bei.kalender import (
     batas_bar_final,
     hitung_kalender_turunan,
     peringatan_libur,
+    tanggal_final_terakhir,
     tentukan_t,
     tentukan_t1,
 )
@@ -160,16 +161,14 @@ def test_batas_bar_final_terverifikasi_penutupan_plus_jeda():
     assert batas_bar_final(cfg0, date(2026, 10, 15)) == wib("2026-10-15 16:00")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG config.batas_bar_final_jam: jam_penutupan + jeda yang melewati tengah malam "
-    "dibungkus .time() ke hari yang sama (16:00 + 540 menit → 01:00 hari t, seharusnya 01:00 t+1), "
-    "sehingga tentukan_t pukul 10:00 sudah menganggap bar hari itu final",
-)
 def test_batas_bar_final_melewati_tengah_malam():
     cfg = buat_cfg(JADWAL_FIKTIF, jeda_data_final_menit=540)
     assert batas_bar_final(cfg, date(2026, 10, 15)) == wib("2026-10-16 01:00")
     assert tentukan_t(cfg, Kalender({}), wib("2026-10-15 10:00")) == date(2026, 10, 14)
+    # 00:30 Jumat: bar Kamis baru final pukul 01:00 → t masih Rabu; pukul 01:00 → Kamis.
+    assert tentukan_t(cfg, Kalender({}), wib("2026-10-16 00:30")) == date(2026, 10, 14)
+    assert tentukan_t(cfg, Kalender({}), wib("2026-10-16 01:00")) == date(2026, 10, 15)
+    assert tanggal_final_terakhir(cfg, wib("2026-10-16 00:30")) == date(2026, 10, 14)
 
 
 def test_batas_terverifikasi_tanpa_jam_penutupan_kembali_ke_jam_run():

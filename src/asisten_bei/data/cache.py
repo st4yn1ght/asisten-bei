@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 
 from ..config import Config
-from ..kalender import Kalender, batas_bar_final
+from ..kalender import Kalender, tanggal_final_terakhir
 from ..operasional import tulis_atomik
 from ..waktu import ke_wib
 from .kualitas import validasi_struktur
@@ -383,7 +383,8 @@ def perbarui_cache(
         n = dcfg.bar_cek_ulang
         mulai = lama.index[-n if len(lama) >= n else 0].date()
 
-    batas_ts = ke_ts(hari) if now < batas_bar_final(cfg, hari) else ke_ts(hari) + pd.Timedelta(days=1)
+    # Bar bertanggal ≥ batas_ts belum final (§8.3): tanggal final terakhir + 1 hari.
+    batas_ts = ke_ts(tanggal_final_terakhir(cfg, now)) + pd.Timedelta(days=1)
 
     def gagal_ambil(jenis: JenisErrorAmbil, pesan: str) -> HasilPembaruan:
         isi_ret = isi

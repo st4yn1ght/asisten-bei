@@ -47,7 +47,10 @@ class DataSaham:
     - `mentah`: bar pada hari bursa (non-bursa sudah dibuang), termasuk bar rusak/tanpa transaksi
       (bertanda); `valid`: bar valid saja; `split`: seri split standar (§8.4).
     - `indikator`: `hitung_indikator(valid)` / `hitung_indikator_indeks(valid)`.
-    - `tanda`: `kualitas.hitung_tanda_asof` (satu baris per hari bursa, kausal).
+    - `tanda`: `kualitas.hitung_tanda_asof` (satu baris per hari bursa, kausal), dihitung sampai `akhir`
+      run yang **sama untuk semua simbol** (t run harian / akhir backtest), bukan sampai bar terakhir
+      simbol itu. Dengan begitu hari sesudah bar terakhir tetap punya baris (bar hilang / data basi)
+      dan hasilnya identik dengan perhitungan ulang dari data ≤ t (T-LA1a). Ditegakkan `DataPasar`.
     - `alasan_seri`: alasan tingkat seri (mis. GAGAL_AMBIL, RIWAYAT_CSV_PENDEK) yang berlaku untuk
       semua tanggal dan mengalahkan alasan as-of.
     """
@@ -130,6 +133,20 @@ class DataPasar:
         self.cfg = cfg
         self._kunci: dict[str, _Kunci] = {k: _Kunci.dari(ds) for k, ds in self._saham.items()}
         self._kunci_ihsg = _Kunci.dari(ihsg) if ihsg is not None else None
+        self._cek_akhir_tanda_sama()
+
+    def _cek_akhir_tanda_sama(self) -> None:
+        """Semua bingkai `tanda` yang tidak kosong wajib berakhir pada hari bursa yang sama (akhir run).
+        Akhir per simbol membuat `tanda()` bernilai None sesudah bar terakhir simbol itu, padahal
+        perhitungan ulang dari data ≤ t punya baris pada t — pelanggaran kesetaraan T-LA1a."""
+        akhir: dict[str, pd.Timestamp] = {}
+        semua = list(self._saham.values()) + ([self._ihsg] if self._ihsg is not None else [])
+        for ds in semua:
+            if len(ds.tanda.index) > 0:
+                akhir[ds.kode] = ds.tanda.index[-1]
+        if len(set(akhir.values())) > 1:
+            rincian = ", ".join(f"{k}={v.date().isoformat()}" for k, v in sorted(akhir.items()))
+            raise ValueError(f"tanda harus dihitung sampai akhir run yang sama untuk semua simbol: {rincian}")
 
     def tampilan(self, as_of: date | pd.Timestamp | str) -> "DataView":
         return DataView(self, as_of)

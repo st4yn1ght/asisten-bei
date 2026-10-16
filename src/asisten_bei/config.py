@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, time, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any, Literal, Union
@@ -690,10 +690,14 @@ def muat_config(path_config: str | Path, akar: str | Path | None = None) -> Kont
     return KonteksApp(cfg=cfg, akar=akar_p, path_config=path_config)
 
 
-def batas_bar_final_jam(cfg: Config) -> time:
-    """Jam batas bar final (SPEC §8.6), tanpa tanggal."""
+def batas_bar_final_offset(cfg: Config) -> timedelta:
+    """Batas bar final (SPEC §8.6) sebagai selisih dari pukul 00:00 WIB hari bar itu.
+
+    Bisa ≥ 24 jam bila `jam_penutupan + jeda_data_final_menit` melewati tengah malam; karena itu
+    nilainya timedelta, bukan jam, agar batasnya jatuh pada hari berikutnya (bukan terbungkus)."""
     js = cfg.pasar.jadwal_sesi
     if js.terverifikasi and js.jam_penutupan:
-        dasar = datetime.combine(date(2000, 1, 3), parse_jam(js.jam_penutupan))
-        return (dasar + timedelta(minutes=cfg.data.jeda_data_final_menit)).time()
-    return parse_jam(cfg.jadwal.jam_run)
+        jam = parse_jam(js.jam_penutupan)
+        return timedelta(hours=jam.hour, minutes=jam.minute + cfg.data.jeda_data_final_menit)
+    jam = parse_jam(cfg.jadwal.jam_run)
+    return timedelta(hours=jam.hour, minutes=jam.minute)

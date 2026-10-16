@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 import numpy as np
 import pandas as pd
 
-from .config import Config, batas_bar_final_jam, parse_jam
+from .config import Config, batas_bar_final_offset, parse_jam
 from .waktu import ZONA, ke_wib
 
 
@@ -228,18 +228,26 @@ def bandingkan_kalender(
 
 
 def batas_bar_final(cfg: Config, tanggal: date) -> datetime:
-    """Waktu (WIB) setelah bar `tanggal` dianggap final."""
-    return datetime.combine(tanggal, batas_bar_final_jam(cfg), tzinfo=ZONA)
+    """Waktu (WIB) setelah bar `tanggal` dianggap final. Bisa jatuh pada hari berikutnya bila
+    jam penutupan + jeda melewati tengah malam."""
+    return datetime.combine(tanggal, time(0), tzinfo=ZONA) + batas_bar_final_offset(cfg)
+
+
+def tanggal_final_terakhir(cfg: Config, sekarang: datetime) -> date:
+    """Tanggal kalender terbaru d ≤ hari ini yang barnya sudah final pada `sekarang`."""
+    now = ke_wib(sekarang)
+    d = now.date()
+    while now < batas_bar_final(cfg, d):
+        d -= timedelta(days=1)
+    return d
 
 
 def tentukan_t(cfg: Config, kal: Kalender, sekarang: datetime) -> date:
-    """Hari ini jika hari bursa (manual) dan sudah lewat batas bar final; selain itu hari bursa
-    (manual) sebelumnya."""
-    now = ke_wib(sekarang)
-    hari = now.date()
-    if kal.adalah_hari_bursa_manual(hari) and now >= batas_bar_final(cfg, hari):
-        return hari
-    return kal.hari_bursa_sebelum(hari, manual=True)
+    """Hari bursa (manual) terbaru yang barnya sudah final pada `sekarang` (§8.6)."""
+    final = tanggal_final_terakhir(cfg, sekarang)
+    if kal.adalah_hari_bursa_manual(final):
+        return final
+    return kal.hari_bursa_sebelum(final, manual=True)
 
 
 def tentukan_t1(kal: Kalender, t: date) -> date:

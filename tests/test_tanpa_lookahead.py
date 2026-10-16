@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import copy
 import math
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
@@ -248,9 +248,14 @@ def _fungsi_tanda(kode: str):
     return f
 
 
+# Akhir run yang sama untuk semua simbol (kontrak DataPasar). Sengaja sesudah bar terakhir data
+# sintetis (2025-04-25), sehingga hari tanpa bar di ujung run ikut diuji (bar hilang / data basi).
+AKHIR_RUN = date(2025, 6, 30)
+
+
 def _data_saham(kode: str) -> DataSaham:
     seri = _validasi(MENTAH[kode], SPLIT[kode], kode)
-    akhir = MENTAH[kode].index.max().date()
+    akhir = AKHIR_RUN
     return DataSaham(
         kode=kode,
         adalah_indeks=_indeks(kode),
@@ -685,6 +690,13 @@ class TestDataView:
         rusak = DataSaham(**{**ds.__dict__, "valid": ds.valid.iloc[::-1]})
         with pytest.raises(ValueError, match="urut naik"):
             DataPasar({"UJI": rusak}, None, KAL, pasar_kecil.cfg)
+
+    def test_akhir_tanda_berbeda_ditolak(self, pasar_kecil):
+        """Tanda per simbol yang berakhir di bar terakhirnya sendiri (bukan akhir run) ditolak."""
+        ds = pasar_kecil._saham["UJI"]
+        pendek = DataSaham(**{**ds.__dict__, "kode": "PENDEK", "tanda": ds.tanda.iloc[:-2]})
+        with pytest.raises(ValueError, match="akhir run yang sama"):
+            DataPasar({"UJI": ds, "PENDEK": pendek}, pasar_kecil._ihsg, KAL, pasar_kecil.cfg)
 
 
 def test_dataview_cepat_untuk_banyak_tanggal(pasar):
