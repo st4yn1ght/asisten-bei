@@ -199,9 +199,9 @@ def _cek_data_ihsg(dv: "DataView") -> list[str]:
     tampil = dv.ihsg()
     if tampil is None:
         return ["data IHSG tidak tersedia"]
-    if tampil.alasan_seri:
-        return [f"data IHSG tidak dapat dipakai ({tampil.alasan_seri})"]
     kurang: list[str] = []
+    if tampil.alasan_seri:
+        kurang.append(f"data IHSG tidak dapat dipakai ({tampil.alasan_seri})")
     baris = tampil.tanda()
     if baris is None or not bool(baris.get("ada_bar_valid", False)):
         kurang.append(f"bar IHSG {dv.as_of.isoformat()} tidak ada")
@@ -322,7 +322,15 @@ def _tabel_syarat(
     def breadth_kurang(ambang: Decimal) -> bool | None:
         return None if breadth is None else br.breadth_kurang_dari(ambang)
 
+    alasan_seri = tampil.alasan_seri if tampil is not None else None
+    if tampil is None:
+        data_dipakai, dapat = "tidak tersedia", False
+    elif alasan_seri:
+        data_dipakai, dapat = alasan_seri, False
+    else:
+        data_dipakai, dapat = "ya", True
     return (
+        Syarat("K0", "Data IHSG tersedia dan dapat dipakai", data_dipakai, "ya", dapat),
         Syarat("K0", f"Bar IHSG {dv.as_of.isoformat()} tersedia", "ada" if ada_bar else "tidak ada", "ada",
                ada_bar),
         Syarat("K0", f"Bar IHSG hilang dalam {v.jendela_kelengkapan_bar} hari bursa terakhir",
@@ -332,6 +340,8 @@ def _tabel_syarat(
                "tidak ada", None if anomali is None else not anomali),
         Syarat("K0", f"SMA{n_panjang} IHSG terdefinisi", a(sma_panjang), "terdefinisi",
                None if not ada_bar else sma_panjang is not None),
+        Syarat("K0", f"SMA{n_pendek} IHSG terdefinisi", a(sma_pendek), "terdefinisi",
+               None if not ada_bar else sma_pendek is not None),
         Syarat("K0", f"Cakupan breadth ({br.n_terhitung}/{br.n_tercatat} saham)", p(cakupan),
                f"≥ {p(kp.min_cakupan_breadth_pct)}",
                None if cakupan is None else not br.cakupan_kurang_dari(kp.min_cakupan_breadth_pct)),

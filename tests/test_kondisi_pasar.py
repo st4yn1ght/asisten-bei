@@ -54,7 +54,8 @@ def test_k3_boleh_beli_dengan_ihsg_tanpa_volume():
     assert h.breadth.breadth_pct == Decimal(60)
     assert h.data_lengkap and h.kekurangan_data == ()
     # Tabel syarat selalu lengkap; semua syarat K3 ✓.
-    assert len(h.syarat) == 13
+    assert len(h.syarat) == 15
+    assert all(s.terpenuhi for s in h.syarat if s.aturan == "K0")
     assert all(s.terpenuhi for s in h.syarat if s.aturan == "K3")
     assert all(s.terpenuhi is False for s in h.syarat if s.aturan in ("K1", "K2"))
 
@@ -86,6 +87,26 @@ def test_k1_ihsg_tren_turun():
     assert (h.status, h.aturan, h.alasan) == (JANGAN_BELI, "K1", "IHSG dalam tren turun")
 
 
+def test_k1_butuh_kedua_syarat_koreksi_awal_hati_hati():
+    """close < SMA20 tetapi SMA5 masih > SMA20 → bukan K1 (DAN, bukan ATAU) → K4."""
+    c = naik(T, 7000, 0.01)
+    c = c + [c[-1] * 0.88]  # koreksi tajam pada t
+    h = _hitung(_breadth(3, 2), ihsg=bar(c, indeks=True))
+    assert h.ihsg_close < h.ihsg_sma_panjang and h.ihsg_sma_pendek > h.ihsg_sma_panjang  # prasyarat
+    assert (h.status, h.aturan) == (HATI_HATI, "K4")
+
+
+def test_k3_butuh_sma_pendek_di_atas_sma_panjang_pemulihan_v():
+    """Pemulihan tajam: close > SMA5 dan close > SMA20, tetapi SMA5 < SMA20 → K4, bukan K3."""
+    c = turun(T - 1, 7000, 0.01)
+    c = c + [c[-1] * 1.06, c[-1] * 1.06 * 1.06]
+    h = _hitung(_breadth(3, 2), ihsg=bar(c, indeks=True))
+    assert h.ihsg_close > h.ihsg_sma_panjang and h.ihsg_close > h.ihsg_sma_pendek  # prasyarat
+    assert h.ihsg_sma_pendek < h.ihsg_sma_panjang
+    assert (h.status, h.aturan) == (HATI_HATI, "K4")
+    assert "SMA5" in h.alasan and "tidak di atas SMA20" in h.alasan
+
+
 def test_k1_mendahului_k2():
     h = _hitung(_breadth(0, 5), ihsg=bar(turun(T + 1, 7000), indeks=True))
     assert h.aturan == "K1"
@@ -108,11 +129,29 @@ def test_breadth_tepat_30_persen_bukan_k2():
     assert (h.status, h.aturan) == (HATI_HATI, "K4")
 
 
-def test_breadth_29_koma_sekian_persen_k2():
+def test_ambang_sedikit_di_atas_breadth_k2():
     # Ambang 30,000001%: breadth tepat 30% kini di bawah ambang → K2.
     cfg = cfg_uji({**_UBAH, "kondisi_pasar.breadth_jangan_maks_pct": "30.000001"})
     h = _hitung(_breadth(3, 7), cfg=cfg)
     assert h.aturan == "K2"
+
+
+def test_batas_tepat_yang_meleset_bila_memakai_float():
+    """57/100 × 100 = 56,99999999999999 dalam float; perbandingan tepat harus tetap lolos 57%."""
+    assert 57 / 100 * 100 < 57  # prasyarat: float memang meleset di sini
+    cfg = cfg_uji({**_UBAH, "kondisi_pasar.breadth_boleh_min_pct": 57})
+    h = _hitung(_breadth(57, 43), cfg=cfg)
+    assert h.breadth.breadth_pct == Decimal(57)
+    assert h.status == BOLEH_BELI
+
+
+def test_cakupan_tepat_yang_meleset_bila_memakai_float():
+    cfg = cfg_uji({**_UBAH, "kondisi_pasar.min_cakupan_breadth_pct": 57})
+    saham = _breadth(57, 0)
+    saham.update({f"H{i:02d}": bar(naik(T + 1, 400 + i), buang=[T]) for i in range(43)})  # tanpa bar t
+    h = _hitung(saham, cfg=cfg)
+    assert (h.breadth.n_tercatat, h.breadth.n_terhitung) == (100, 57)
+    assert h.aturan != "K0"
 
 
 
@@ -180,6 +219,47 @@ def test_k0_cakupan_breadth_batas_80_persen(n_hilang, harapan_k0):
 def test_k0_saham_terhitung_kurang_dari_minimum():
     h = _hitung(_breadth(2, 0))
     assert h.aturan == "K0" and "saham breadth terhitung 2 < 3" in h.alasan
+    assert _hitung(_breadth(3, 0)).aturan != "K0"  # tepat minimum lolos
+
+
+def test_k0_ihsg_alasan_seri_muncul_di_tabel():
+    from asisten_bei.data.tampilan import DataPasar
+
+    from bantu_pasar import KAL, data_saham
+
+    saham = _breadth(4, 1)
+    akhir = tgl(T + 5)
+    ds = {k: data_saham(k, df, CFG, akhir) for k, df in saham.items()}
+    ih = data_saham("IHSG", bar(naik(T + 1, 7000), indeks=True), CFG, akhir, indeks=True,
+                    alasan_seri="GAGAL_AMBIL")
+    h = hitung_kondisi_pasar(DataPasar(ds, ih, KAL, CFG).tampilan(tgl(T)), list(saham))
+    assert h.aturan == "K0" and "data IHSG tidak dapat dipakai (GAGAL_AMBIL)" in h.alasan
+    baris = next(s for s in h.syarat if s.uraian == "Data IHSG tersedia dan dapat dipakai")
+    assert (baris.nilai, baris.terpenuhi, baris.tanda) == ("GAGAL_AMBIL", False, "✗")
+
+
+def test_tabel_k0_menandai_syarat_yang_gagal():
+    h = _hitung(_breadth(4, 1), ihsg=bar(naik(T + 1, 7000), indeks=True, buang=[30, 31, 32]))
+    k0 = {s.uraian: s.terpenuhi for s in h.syarat if s.aturan == "K0"}
+    assert k0["Bar IHSG hilang dalam 60 hari bursa terakhir"] is False
+
+
+def test_ihsg_bar_hilang_tepat_maksimum_bukan_k0():
+    h = _hitung(_breadth(4, 1), ihsg=bar(naik(T + 1, 7000), indeks=True, buang=[30, 31]))  # 2 = maks
+    assert h.aturan != "K0"
+
+
+@pytest.mark.parametrize("n_sebelum, tercatat", [(5, True), (4, False)])
+def test_tercatat_tepat_breadth_sma_bar_sebelum_t(n_sebelum, tercatat):
+    saham = _breadth(3, 1, BARU=bar(naik(n_sebelum + 1, 300), mulai=T - n_sebelum))
+    h = _hitung(saham)
+    assert h.breadth.n_tercatat == 4 + int(tercatat)
+
+
+def test_close_sama_dengan_sma_tidak_dihitung_di_atas():
+    saham = _breadth(3, 1, DATAR=bar([700.0] * (T + 1)))  # close = SMA5 tepat
+    h = _hitung(saham)
+    assert (h.breadth.n_terhitung, h.breadth.n_di_atas_sma) == (5, 3)
 
 
 def test_saham_belum_tercatat_tidak_masuk_penyebut():
@@ -189,6 +269,18 @@ def test_saham_belum_tercatat_tidak_masuk_penyebut():
     h = _hitung(saham)
     assert h.breadth.n_tercatat == 4 and h.breadth.n_terhitung == 4
     assert h.breadth.cakupan_pct == Decimal(100)
+
+
+@pytest.mark.parametrize("bar_sejak_anomali, dihitung", [(5, False), (6, True)])
+def test_anomali_breadth_tepat_di_batas_jendela(bar_sejak_anomali, dihitung):
+    """Anomali dengan tepat breadth_sma (5) bar valid dalam [a, t] masih dalam jendela."""
+    c = naik(T + 1, 500)
+    a = T + 1 - bar_sejak_anomali
+    saham = _breadth(4, 0, ANOM=bar(c[:a] + [x * 1.6 for x in c[a:]]))
+    br = hitung_breadth(
+        pasar(saham, bar(naik(T + 1, 7000), indeks=True), CFG, tgl(T + 5)).tampilan(tgl(T)), list(saham)
+    )
+    assert br.n_terhitung == 4 + int(dihitung)
 
 
 def test_anomali_saham_breadth_dalam_jendela_tidak_dihitung():

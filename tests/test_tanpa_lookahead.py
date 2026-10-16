@@ -407,12 +407,25 @@ def test_t_la1a_lewat_dataview(pasar):
 CFG_PASAR = _cfg({"kondisi_pasar.min_saham_breadth": 2, "likuiditas.nilai_transaksi_min_idr": 500_000_000})
 
 
+def _saham_baru_melantai() -> tuple[pd.DataFrame, pd.Series]:
+    """Saham breadth yang baru melantai di HARI[350], agar status 'tercatat' (≥ breadth_sma bar valid
+    sebelum t) berubah di dalam rentang uji."""
+    mentah, split = _buat_mentah(np.random.default_rng(SEED + 5), harga=900.0)
+    return mentah[mentah.index >= HARI[350]], split
+
+
+BARU_MENTAH, BARU_SPLIT = _saham_baru_melantai()
+BREADTH_UJI = [*SAHAM, "EEEE"]
+
+
 def _pasar_sampai(akhir: date, potong: bool) -> DataPasar:
     """DataPasar dari data penuh (akhir run = AKHIR_RUN) atau dari data yang dipotong ≤ `akhir`."""
     batas = ke_ts(akhir)
+    sumber = {**MENTAH, "EEEE": BARU_MENTAH}
+    sumber_split = {**SPLIT, "EEEE": BARU_SPLIT}
 
     def bangun(kode: str) -> DataSaham:
-        mentah, split = MENTAH[kode], SPLIT[kode]
+        mentah, split = sumber[kode], sumber_split[kode]
         if potong:
             mentah = mentah[mentah.index <= batas]
             split = split[split.index <= batas]
@@ -421,7 +434,7 @@ def _pasar_sampai(akhir: date, potong: bool) -> DataPasar:
             anomali_ok=ANOMALI_OK, akhir=akhir if potong else AKHIR_RUN,
         )
 
-    return DataPasar({k: bangun(k) for k in SAHAM}, bangun("IHSG"), KAL, CFG_PASAR)
+    return DataPasar({k: bangun(k) for k in BREADTH_UJI}, bangun("IHSG"), KAL, CFG_PASAR)
 
 
 def test_t_la1a_status_pasar_dan_eligibilitas_potong_sama_dengan_penuh():
@@ -436,19 +449,22 @@ def test_t_la1a_status_pasar_dan_eligibilitas_potong_sama_dengan_penuh():
     pilihan = sorted({hari[int(i)] for i in rng.integers(0, len(hari), 140)})
     # Tanggal kritis: sekitar bar IHSG bolong, anomali, split, dan sesudah data berakhir.
     pilihan = sorted({*pilihan, *(HARI[p] for p in (300, 301, 380, 381, 500, 503, 504, 505, 599)),
+                      *(HARI[p] for p in range(396, 412)),  # EEEE melewati ambang tercatat (50 bar)
                       ke_ts(date(2025, 5, 2))})
-    status_terlihat, alasan_terlihat = set(), set()
+    status_terlihat, alasan_terlihat, tercatat_terlihat = set(), set(), set()
     for t in pilihan:
         d = t.date()
         a, b = penuh.tampilan(d), _pasar_sampai(d, potong=True).tampilan(d)
-        kp_a, kp_b = hitung_kondisi_pasar(a, SAHAM), hitung_kondisi_pasar(b, SAHAM)
+        kp_a, kp_b = hitung_kondisi_pasar(a, BREADTH_UJI), hitung_kondisi_pasar(b, BREADTH_UJI)
         assert kp_a == kp_b, d
         el_a, el_b = nilai_eligibilitas(a, aturan), nilai_eligibilitas(b, aturan)
         assert el_a == el_b, d
         status_terlihat.add(kp_a.aturan)
+        tercatat_terlihat.add(kp_a.breadth.n_tercatat)
         alasan_terlihat.update(s.alasan for s in el_a.status.values())
     # Uji tidak hampa: beberapa cabang status dan alasan eligibilitas benar-benar muncul.
     assert len(status_terlihat) >= 2, status_terlihat
+    assert {4, 5} <= tercatat_terlihat, tercatat_terlihat  # aturan 'tercatat' benar-benar berubah
     assert {None, "DATA_BASI", "ANOMALI"} <= alasan_terlihat, alasan_terlihat
 
 

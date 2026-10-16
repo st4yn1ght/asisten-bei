@@ -473,6 +473,19 @@ def test_bar_hari_ini_dengan_jadwal_sesi_terverifikasi_fiktif(pasar, cache, saat
     assert (pd.Timestamp("2026-10-15") in cache.baca(KODE).bar.index) is tersimpan
 
 
+def test_batas_final_lewat_tengah_malam_bar_kemarin_belum_final(pasar, cache):
+    """16:00 + 540 menit → bar 15 Okt baru final 16 Okt 01:00. Pukul 00:30 bar itu belum disimpan dan
+    catatannya 'belum final', bukan 'bertanggal sesudah hari ini'."""
+    cfg = buat_cfg(JADWAL_FIKTIF, jeda_data_final_menit=540)
+    siapkan_cache_awal(pasar, cache, "2026-10-14 20:00")
+    h = perbarui(pasar, cache, "2026-10-16 00:30", cfg=cfg)
+    assert pd.Timestamp("2026-10-15") not in cache.baca(KODE).bar.index
+    assert "bar 2026-10-15 belum final (sebelum batas bar final): tidak disimpan" in h.catatan
+    assert not any("2026-10-15 bertanggal sesudah hari ini" in c for c in h.catatan)
+    h2 = perbarui(pasar, cache, "2026-10-16 01:00", cfg=cfg)
+    assert pd.Timestamp("2026-10-15") in cache.baca(KODE).bar.index and h2.status == "OK"
+
+
 def test_unduhan_hanya_berisi_bar_belum_final_tidak_mengubah_cache(cache):
     pasar = PasarPalsu()
     pasar.bar["BARU"] = pasar_harian("2026-10-15", "2026-10-15")  # melantai hari ini

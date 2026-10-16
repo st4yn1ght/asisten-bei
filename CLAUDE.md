@@ -32,5 +32,6 @@ python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/b
 - **Data harian:** index `DatetimeIndex` tz-naive bernama `tanggal` (= tanggal WIB); kolom `open, high, low, close, volume` (+ `sumber`, `split` di cache). Harga di cache sudah disesuaikan split; sizing memakai harga nominal (`× F(d)`).
 - **Path** di config relatif terhadap `--akar` (`KonteksApp.path()`), bukan direktori kerja.
 - **Uji** offline & deterministik: tanpa jaringan (yfinance di-mock), tidak menyentuh berkas pengguna (salin fixture ke `tmp_path`), selalu set `ASISTEN_BEI_WAKTU_SEKARANG`.
+  Pembantu bersama: `tests/bantu_pasar.py` (`cfg_uji` dengan kunci bertitik, `bar`/`naik`/`turun`, `pasar(...)` → `DataPasar` sintetis). Tanda kualitas data semua simbol satu run wajib dihitung sampai `akhir` run yang sama (`bangun_data_saham`; ditegakkan `DataPasar`).
 - Enum hanya nilai §4.3. Teks untuk pengguna berbahasa Indonesia; kata "trade" tidak dipakai di laporan.
 - Kode keluar §20.1, prioritas 3 > 1 > 5 > 2 > 6 > 4 > 0 (`operasional.gabung_kode_keluar`).

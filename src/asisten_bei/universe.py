@@ -35,6 +35,8 @@ if TYPE_CHECKING:  # pragma: no cover
     from .data.tampilan import DataView
     from .inputs import BarisExclude, Masukan
 
+from .inputs import sektor_tidak_diketahui
+
 KonteksUniverse = Literal["live", "backtest"]
 
 # Alasan data dari `kualitas.alasan_data_asof` yang dinilai sebagai syarat 3 (sebelum likuiditas).
@@ -79,12 +81,15 @@ class AturanUniverse:
             kode = tuple(dict.fromkeys(masukan.kode_universe()))
             catatan = ("universe_history.csv tidak ada: universe saat ini dipakai untuk seluruh periode",)
         pakai = bool(cfg.backtest.pakai_exclude)
+        # §6.3: sektor hanya dari universe.csv; selain itu TIDAK_DIKETAHUI:<KODE>. Kolom sektor
+        # portfolio.csv (§6.5) khusus posisi live dan tidak boleh memengaruhi hasil backtest.
+        peta_sektor = {s.kode: s.sektor for s in masukan.universe}
         return cls(
             konteks="backtest",
             kandidat=kode,
             anggota_pada=masukan.konstituen_pada,
             exclude_pada=masukan.dikecualikan_pada if pakai else (lambda k, d: None),
-            sektor=masukan.sektor,
+            sektor=lambda k: peta_sektor.get(k) or sektor_tidak_diketahui(k),
             pakai_exclude=pakai,
             _catatan=catatan,
         )
@@ -197,7 +202,7 @@ def nilai_eligibilitas(dv: "DataView", aturan: AturanUniverse) -> HasilEligibili
         baris = dv.baris(kode)
         rata = None if baris is None else float(baris.get("rata_nilai", math.nan))
         if rata is None or math.isnan(rata) or rata < float(ambang):
-            nilai = "belum terdefinisi" if rata is None or math.isnan(rata) else teks.rupiah(Decimal(str(round(rata))))
+            nilai = "belum terdefinisi" if rata is None or math.isnan(rata) else teks.rupiah(Decimal(str(rata)))
             keluar(
                 "TIDAK_LIKUID_RATA2",
                 f"rata-rata nilai transaksi {cfg.likuiditas.periode_hari} hari {nilai} < {teks.rupiah(ambang)}",

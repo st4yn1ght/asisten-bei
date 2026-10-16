@@ -110,6 +110,21 @@ def test_riwayat_menggantikan_universe_di_backtest_dan_sektor_tidak_diketahui():
     assert sorted(h.eligible) == ["AAAA", "ZZZZ"]
 
 
+def test_sektor_backtest_tidak_diambil_dari_portofolio():
+    from asisten_bei.inputs import BarisPortofolio
+
+    d = tgl(T)
+    r = _riwayat(("AAAA", d - timedelta(days=60), None), ("ZZZZ", d - timedelta(days=60), None))
+    p = BarisPortofolio("ZZZZ", d - timedelta(days=3), Decimal(1000), 1, "MANUAL", Decimal(900), "Keuangan",
+                        None, None, "", 2)
+    masukan = _masukan(kode=("AAAA",), riwayat=r, portofolio=[p])
+    assert masukan.sektor("ZZZZ") == "Keuangan"  # live: kolom sektor portfolio.csv dipakai (§6.5)
+    aturan = AturanUniverse.backtest(masukan, CFG)
+    assert aturan.sektor("ZZZZ") == "TIDAK_DIKETAHUI:ZZZZ"  # backtest: hanya universe.csv (§6.3)
+    h = _nilai({"AAAA": _datar(), "ZZZZ": _datar()}, masukan, konteks="backtest")
+    assert h.status["ZZZZ"].sektor == "TIDAK_DIKETAHUI:ZZZZ"
+
+
 def test_live_mengabaikan_riwayat():
     d = tgl(T)
     r = _riwayat(("AAAA", d + timedelta(days=30), None))  # menurut riwayat belum konstituen
@@ -205,6 +220,22 @@ def test_volume_nol_di_luar_jendela_tidak_mengeluarkan():
     vol = [10_000_000.0] * (T + 1)
     vol[T - 10] = 0.0  # di luar 5 hari bursa terakhir
     assert _nilai({"AAAA": bar([1000.0] * (T + 1), volume=vol)}, _masukan()).status["AAAA"].eligible
+
+
+def test_rincian_likuiditas_tidak_membulatkan_menjadi_sama_dengan_ambang():
+    # volume 9.999.999,9996 × close 1.000 → rata-rata 9.999.999.999,6 < ambang
+    s = _nilai({"AAAA": _datar(volume=9_999_999.9996)}, _masukan()).status["AAAA"]
+    assert s.alasan == "TIDAK_LIKUID_RATA2"
+    assert "Rp 9.999.999.999,60 < Rp 10.000.000.000" in s.rincian
+
+
+def test_urutan_konstituen_mendahului_exclude():
+    d = tgl(T)
+    r = _riwayat(("AAAA", d - timedelta(days=60), d - timedelta(days=1)))  # bukan konstituen pada t
+    ex = BarisExclude("AAAA", "Suspensi", None, None)
+    cfg = cfg_uji({**UBAH, "backtest.pakai_exclude": True})
+    s = _nilai({"AAAA": _datar()}, _masukan(riwayat=r, exclude=[ex]), cfg=cfg, konteks="backtest").status["AAAA"]
+    assert s.alasan == "BUKAN_KONSTITUEN"
 
 
 def test_urutan_syarat_konstituen_lalu_exclude_lalu_data():

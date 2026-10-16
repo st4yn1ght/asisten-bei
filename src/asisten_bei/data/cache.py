@@ -413,7 +413,7 @@ def perbarui_cache(
         bar = bar[bar.index >= ke_ts(dari)]  # defensif: provider yang mengabaikan `mulai`
         belum_final = bar.index[bar.index >= batas_ts]
         for ts in belum_final:
-            if ts.date() == hari:
+            if ts.date() <= hari:  # termasuk kemarin bila batas bar final lewat tengah malam
                 catatan.append(f"bar {_tgl(ts)} belum final (sebelum batas bar final): tidak disimpan")
             else:
                 catatan.append(f"bar {_tgl(ts)} bertanggal sesudah hari ini: dibuang")
