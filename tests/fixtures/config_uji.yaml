@@ -1,0 +1,237 @@
+# BUKAN SARAN INVESTASI. Config uji (tahap 1–4): salinan config.yaml rilis dengan path ke input_uji/ dan
+# manual_uji/ (relatif terhadap --akar = salinan tests/fixtures di direktori sementara pytest) serta
+# Telegram nonaktif. Data dan kode saham di fixture ini FIKTIF – KHUSUS UJI. Tahap 6 memperluasnya (§22.2).
+versi_config: 1                        # harus 1; nilai lain = error "config dari versi program lain"
+
+akun:
+  modal_awal_idr: 3000000              # default modal mode 'realistis' (ikuti_akun) & jurnal kertas
+  file_akun: input_uji/akun.yaml
+  maks_umur_hari_bursa: 5
+
+risiko:
+  risiko_per_transaksi_pct: 1.0        # % ekuitas; sudah termasuk fee & slippage sisi stop
+  maks_posisi: 3
+  alokasi_maks_pct: ikuti_maks_posisi  # = ekuitas ÷ maks_posisi milik konteks yang berjalan; atau angka persen
+  maks_per_sektor: 1                   # null = tanpa batas
+  maks_entry_baru_per_hari: null       # null = hanya dibatasi slot
+  izinkan_satu_lot_melebihi_risiko: false
+  dana_jual_langsung_dipakai: false    # true = estimasi hasil jual di open t+1 boleh membiayai beli di open t+1
+  slot_bebas_dari_jual_terjadwal: true # posisi yang dijadwalkan jual di open t+1 tidak menempati slot
+  hati_hati:
+    pengali_risiko: 0.5
+    maks_entry_baru_per_hari: 1
+
+biaya:
+  fee_beli_pct: 0.15
+  fee_jual_pct: 0.25                   # termasuk pajak penjualan; cocokkan dengan trade confirmation
+  fee_minimum_idr: 0                   # per transaksi beli atau jual; 0 = tidak ada
+  pembulatan_fee: null                 # null = tidak dibulatkan; "rupiah_terdekat" (ROUND_HALF_UP) / "rupiah_ke_atas"
+  slippage_pct: 0.10                   # per sisi; dipakai di sizing (sisi stop), backtest, dan jurnal
+  terverifikasi: false                 # ubah ke true setelah dicocokkan dengan trade confirmation
+
+entry:
+  gap_maks_atr: 0.5                    # harga_maks = close_t + 0.5 × ATR_t
+  stop_aktif_hari_entry: true          # false jika Anda tidak bisa memasang stop di hari pembelian
+
+jadwal:
+  jam_run: "19:30"                     # keputusan Anda; dipakai Task Scheduler & sebagai batas bar final (§8.6)
+  kirim_pesan_saat_libur: false
+
+pasar:
+  lot_lembar: 100
+  file_libur: input_uji/holidays.csv
+
+  # ======================================================================
+  # ATURAN & JADWAL BEI — WAJIB DICEK DI idx.co.id. JANGAN DIISI DARI INGATAN.
+  # Aturan perdagangan banyak berubah pada 2026. Selama 'terverifikasi: false':
+  #   - jadwal_sesi : bar hari ini baru dianggap final setelah jadwal.jam_run; setiap run
+  #                   pada tanggal t+1 diberi banner untuk memastikan masih sebelum pra-pembukaan;
+  #   - fraksi_harga: harga dibulatkan ke rupiah bulat saja (arah aman, §4.1);
+  #   - auto_reject : ARA/ARB tidak dimodelkan di backtest/jurnal;
+  #   - setiap laporan menampilkan peringatan.
+  # ======================================================================
+  jadwal_sesi:
+    terverifikasi: false
+    sumber: ""                         # judul + URL halaman idx.co.id yang Anda baca
+    tanggal_cek: null                  # YYYY-MM-DD
+    jam_penutupan: null                # "HH:MM" WIB, hari bursa biasa
+    jam_pra_pembukaan: null            # "HH:MM" WIB, awal sesi pra-pembukaan
+  fraksi_harga:
+    terverifikasi: false
+    sumber: ""
+    tanggal_cek: null
+    berlaku_mulai: null                # YYYY-MM-DD; sebelum tanggal ini tidak ada pembulatan ke fraksi
+    tabel: []
+    # Format per baris (harga_maks null = tak terbatas; harga_min inklusif, harga_maks eksklusif;
+    # baris harus bersambung tanpa celah/tumpang tindih, baris terakhir harga_maks null):
+    #   - {harga_min: <angka>, harga_maks: <angka|null>, fraksi: <angka>}
+  auto_reject:
+    terverifikasi: false
+    sumber: ""
+    tanggal_cek: null
+    berlaku_mulai: null                # YYYY-MM-DD; ARA/ARB hanya dimodelkan untuk tanggal ≥ ini
+    papan_berlaku: ""                  # informasi saja; ditampilkan di laporan bersama sumber
+    harga_acuan: null                  # isi dari peraturan, mis. "close_kemarin" jika memang demikian
+    ara: []                            # - {harga_min: <angka>, harga_maks: <angka|null>, batas_pct: <angka>}
+    arb: []                            # - {harga_min: <angka>, harga_maks: <angka|null>, batas_pct: <angka>}
+    # Jika aturan memakai satu persentase untuk semua harga: satu baris, harga_min 0, harga_maks null. Aturan rentang sama dengan fraksi_harga.
+
+data:
+  provider_urutan: [yfinance, csv_manual]
+  folder_cache: data/cache
+  folder_manual: manual_uji
+  mulai_unduh: "2013-01-01"
+  akhiran_yfinance: ".JK"
+  simbol_ihsg: {yfinance: "^JKSE", csv_manual: "IHSG"}
+  pengali_volume: 1                    # volume harus dalam lembar; cek sekali (§22.3)
+  pengali_volume_terverifikasi: false
+  jeda_data_final_menit: 60            # dipakai hanya jika jadwal_sesi terverifikasi
+  jeda_antar_permintaan_detik: 0.5
+  jeda_batas_permintaan_detik: 60
+  maks_simbol_kena_batas_berturut: 3
+  coba_lagi_tidak_ada_data_hari: 7
+  tunggu_data_hari_ini: {jumlah: 3, jeda_menit: 15}
+  bar_cek_ulang: 10
+  toleransi_revisi_pct: 0.5
+  toleransi_revisi_volume_pct: 5.0
+  min_bar_tumpang_tindih_sambungan: 5
+  file_anomali_ok: input_uji/anomali_ok.csv
+  validasi:
+    lonjakan_mencurigakan_pct: 40      # setelah ARA/ARB diverifikasi, pastikan di atas batas tertinggi
+    jendela_kelengkapan_bar: 60
+    maks_bar_hilang: 2
+    min_cakupan_universe_pct: 80
+    min_hari_kalender_historis_pct: 50
+
+likuiditas:
+  periode_hari: 20
+  nilai_transaksi_min_idr: 10000000000 # rata-rata (close × volume) 20 bar ≥ Rp 10 miliar
+  maks_hari_volume_nol: 0
+  maks_pct_order_dari_nilai_harian: 1.0
+
+universe:
+  file: input_uji/universe.csv
+  file_riwayat: input_uji/universe_history.csv
+  file_exclude: input_uji/exclude.csv
+  file_portfolio: input_uji/portfolio.csv
+  min_bar_riwayat: 250
+
+indikator:
+  atr_periode: 14
+
+kondisi_pasar:
+  sma_pendek: 50
+  sma_panjang: 200
+  breadth_sma: 50
+  breadth_boleh_min_pct: 50
+  breadth_jangan_maks_pct: 30
+  min_cakupan_breadth_pct: 80
+  min_saham_breadth: 30                # jumlah absolut minimum saham yang dihitung
+  file_breadth_universe: input_uji/breadth_universe.csv
+  jangan_beli_paksa_jual: false
+
+strategi:
+  pb:
+    aktif: true
+    sma_cepat: 20
+    sma_tren: 50
+    sma_panjang: 200
+    lookback_slope_sma_tren: 10
+    lookback_sentuh_sma_cepat: 4
+    maks_jarak_atas_sma_cepat_atr: 1.0
+    lookback_swing_low: 5
+    penyangga_stop_atr: 0.2
+    maks_jarak_stop_atr: 3.0
+    target_r: 2.0
+    stop_waktu_hari: 10
+  bo:
+    aktif: true
+    lookback_tertinggi: 20
+    lookback_volume: 20
+    min_rasio_volume: 1.5
+    min_posisi_close: 0.6
+    maks_lewat_level_atr: 1.0
+    sma_tren: 50
+    sma_panjang: 200
+    stop_atr: 2.0
+    trailing_atr: 3.0
+    stop_waktu_hari: null              # null = tanpa stop waktu
+  mr:
+    aktif: true
+    rsi_periode: 2
+    rsi_maks: 10
+    sma_tren: 200
+    maks_turun_harian_atr: 3.0
+    stop_atr: 2.5
+    sma_keluar: 5
+    min_hari_tahan: 2
+    stop_waktu_hari: 5
+  acak:                                # pembanding acak; tidak pernah di laporan harian atau run gabungan
+    peluang_sinyal_pct: 2.0
+    seed: 12345
+    stop_atr: 2.0
+    target_r: 2.0
+    stop_waktu_hari: 10
+
+skor:
+  bobot: {sinyal: 40, kekuatan_relatif: 30, likuiditas: 15, jarak_stop: 15}
+  rs_lookback: 60
+  jarak_stop_ideal_pct: 3.0
+  jarak_stop_buruk_pct: 10.0
+
+backtest:
+  mulai: "2015-01-01"
+  selesai: null                        # null = bar terakhir yang tersedia
+  holdout_mulai: "2024-10-01"          # TETAPKAN SEKALI. Jangan digeser setelah melihat hasil.
+  pakai_exclude: false
+  maks_hari_tanpa_bar: 60              # §15.1 "Seri berhenti"; juga dipakai jurnal kertas
+  potongan_data_berakhir_pct: 50       # §15.1, asumsi konservatif bila seri saham berhenti
+  maks_pf_r_acak: 1.3
+  mode:
+    edge:
+      modal_idr: 1000000000
+      maks_posisi: ikuti_risiko
+      maks_per_sektor: ikuti_risiko
+      alokasi_maks_pct: ikuti_risiko
+    realistis:
+      modal_idr: ikuti_akun
+      maks_posisi: ikuti_risiko
+      maks_per_sektor: ikuti_risiko
+      alokasi_maks_pct: ikuti_risiko
+
+gerbang:                               # selalu dinilai pada mode 'edge'
+  min_transaksi_holdout: 30
+  min_pf_r_holdout: 1.2
+  min_ekspektansi_r_holdout: 0.0       # harus > nilai ini
+  min_pf_r_insample: 1.1
+  min_transaksi_per_jendela: 5
+  min_pct_jendela_pf_di_atas_1: 50
+  maks_drawdown_r: 15
+  kedaluwarsa_hari: 90
+
+laporan:
+  folder: output/laporan
+  format: [terminal, markdown, html, csv, xlsx]
+  maks_kandidat_ditampilkan: 10
+  maks_baris_dikeluarkan: 50
+  bar_grafik: 120
+
+notifikasi:
+  telegram:
+    aktif: false                       # uji offline: tidak ada pengiriman
+    lampirkan_html: true
+    maks_lampiran_mb: 45               # token & chat id di .env, BUKAN di sini
+
+jurnal:
+  file: data/jurnal.sqlite
+  folder_ekspor: output/jurnal
+  tanggal_mulai_kertas: null           # awal periode kertas pertama; null = tanggal run harian pertama
+  maks_hari_tunggu_data: 3
+  min_transaksi_peringatan: 20
+  persentil_peringatan: 5
+  bootstrap_iterasi: 10000
+  bootstrap_seed: 2026
+
+operasional:
+  simpan_log_hari: 90
+  batas_waktu_run_jam: 2

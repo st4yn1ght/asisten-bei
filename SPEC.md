@@ -235,8 +235,7 @@ asisten-bei/
 │
 ├── data/                        # Dikelola program, kecuali data/manual/
 │   ├── cache/
-│   │   ├── yfinance/            # <KODE>.parquet + <KODE>.meta.json
-│   │   └── csv_manual/
+│   │   └── yfinance/            # <KODE>.parquet + <KODE>.meta.json (csv_manual tidak di-cache, §8.2)
 │   ├── manual/                  # CSV OHLCV cadangan yang Anda siapkan sendiri (§6.9)
 │   ├── jurnal.sqlite
 │   ├── .kunci                   # berkas kunci proses (§19.3)
@@ -284,6 +283,7 @@ asisten-bei/
 │   │   ├── cache.py             # parquet + meta, inkremental, revisi, tulis atomik
 │   │   ├── split.py             # faktor split F(d), konversi nominal ↔ tersesuaikan
 │   │   ├── kualitas.py          # validasi & laporan kualitas
+│   │   ├── sumber.py            # kebijakan coba ulang (§8.1), pemilihan sumber per simbol (§8.2), muat pasar dari cache
 │   │   └── tampilan.py          # DataView(as_of=d)
 │   ├── indikator.py
 │   ├── kondisi_pasar.py
@@ -764,6 +764,13 @@ class HasilAmbil:
 
 **`CsvManualProvider`** membaca `data/manual/` (§6.9) dengan validasi yang sama.
 
+**Kebijakan per run** (satu objek untuk seluruh run, `data/sumber.py`):
+- Jeda `jeda_antar_permintaan_detik` sebelum setiap permintaan ke provider jaringan, kecuali permintaan pertama.
+- `JARINGAN`: dicoba lagi sampai 3 kali dengan jeda 2 s, 4 s, lalu 8 s.
+- `BATAS_PERMINTAAN`: jeda `jeda_batas_permintaan_detik`, lalu satu kali coba lagi. Jika masih kena batas, penghitung "berturut-turut" naik. Hasil lain mengembalikan penghitung ke 0.
+- Saat penghitung mencapai `maks_simbol_kena_batas_berturut`, tidak ada permintaan lagi ke provider itu selama run. Simbol sisanya memakai cache/CSV dengan pesan "diblokir sementara oleh Yahoo".
+- Semua jeda lewat `waktu.tidur()`.
+
 **Provider baru** cukup mengimplementasikan antarmuka di atas dan didaftarkan lewat namanya di `data.provider_urutan`.
 
 ### 8.2 Pemilihan sumber per simbol
@@ -778,6 +785,21 @@ class HasilAmbil:
    - sebagai **sambungan** (§6.9) di atas seri yang SEBAGIAN. Hanya bar baru yang diambil, setelah tumpang tindih tervalidasi.
 4. Setiap bar menyimpan kolom `sumber`. Rencana transaksi yang memakai bar dari CSV manual diberi peringatan, dan transaksi simulasinya diberi tanda `SUMBER_MANUAL`.
 5. Cache tidak pernah memasok bar `t` yang belum pernah diambil dari provider.
+
+**Urutan cadangan** (provider pertama = utama; provider berikutnya = cadangan, biasanya `csv_manual`):
+
+| Seri utama | Cadangan | Hasil |
+|---|---|---|
+| OK | — | seri utama |
+| SEBAGIAN | sambungan sah (tumpang tindih cocok, §6.9) | seri utama + bar cadangan sesudah bar terakhir utama; status OK bila memuat bar `t`, selain itu SEBAGIAN |
+| SEBAGIAN | sambungan tidak sah, cadangan OK | cadangan sebagai **pengganti penuh** |
+| SEBAGIAN | lainnya | seri utama (SEBAGIAN), dengan catatan alasan cadangan ditolak |
+| GAGAL / kosong | cadangan OK | cadangan sebagai pengganti penuh |
+| GAGAL / kosong | lainnya | GAGAL (`GAGAL_AMBIL`) |
+
+- Seri pengganti penuh yang lebih pendek dari `universe.min_bar_riwayat` → `RIWAYAT_CSV_PENDEK`.
+- Split seri gabungan = split seri utama, ditambah split cadangan sesudah bar terakhir utama.
+- `csv_manual` **tidak di-cache**. Berkasnya sendiri adalah sumbernya dan dibaca ulang setiap kali dipakai, sehingga berkas yang dihapus atau diperbaiki langsung berlaku. Bar yang belum final (§8.6) dari berkas ini juga dibuang.
 
 **Simbol yang diunduh:**
 
@@ -804,7 +826,7 @@ class HasilAmbil:
   - lembar tersesuaikan = lembar nominal × `F(d)`.
 - **Pemeriksaan split yang belum disesuaikan sumber.** Untuk setiap split tercatat dengan rasio `r` pada tanggal `s`, hitung `q = close_s / close_{s−1}`.
   - Jika `|ln q − ln(1/r)| < |ln q|` (q lebih dekat ke 1/r daripada ke 1), seri dianggap belum disesuaikan dan diberi status `SPLIT_BELUM_DISESUAIKAN`.
-  - Saham itu dikeluarkan dan dilaporkan sejak bar valid pertama ≥ `s` (as-of). Status ini didahulukan dari `ANOMALI`, karena lompatan harga pada `s` juga tampak sebagai anomali. Setiap run berikutnya mengunduh ulang penuh simbol tersebut sampai lolos.
+  - Saham itu dikeluarkan dan dilaporkan sejak bar valid pertama ≥ `s` (as-of). Status ini didahulukan dari `ANOMALI`, karena lompatan harga pada `s` juga tampak sebagai anomali. Setiap run berikutnya mengunduh ulang penuh simbol tersebut sampai lolos: sebelum memperbarui, `unduh` memeriksa seri di cache; bila pemeriksaan ini menemukan split yang belum disesuaikan, simbol itu diunduh ulang penuh (dicatat di berkas kualitas).
   - Split seperti ini **tidak ikut** dalam `F(d)`. Harga cache sebelum `s` belum pernah dibagi rasionya, jadi harga itu sudah nominal. Jika split ini ikut, backtest pada `d < s` akan memakai harga nominal `r` kali terlalu besar.
 - **Pemakaian:**
   - Semua level harga (harga_maks, stop, target, trailing) dihitung di ruang tersesuaikan, dikonversi ke nominal (× `F(d)`) untuk pembulatan, lalu dikonversi kembali.
@@ -1664,6 +1686,32 @@ Jika berkas keluaran terkunci (sedang dibuka di Excel), program menulis ke `<nam
 | `harian [--jadwal] [--offline] [--tanggal D] [--tanpa-notifikasi] [--catat] [--catat-ulang]` | §18 |
 | `jurnal [--ekspor] [--rekonsiliasi]` | §17 |
 | `uji-telegram [--cari-chat-id]` | §18.3 |
+
+**`cek`** hanya membaca: tidak mengunduh, tidak memegang kunci, dan tidak menulis apa pun kecuali log. Isinya, berurutan:
+1. config (ERROR menghentikan pemeriksaan);
+2. input `input/` (ERROR/PERINGATAN per baris), termasuk tanggal portofolio terhadap kalender dan umur `akun.yaml`;
+3. item **BELUM DIVERIFIKASI** (`pasar.jadwal_sesi`, `pasar.fraksi_harga`, `pasar.auto_reject`, `biaya`, `data.pengali_volume`), beserta sumber dan tanggal berlaku item yang sudah diverifikasi;
+4. `holidays.csv` (tahun berjalan/berikutnya) dan perbandingan kalender manual vs turunan dari cache breadth (dilewati dengan catatan bila cache belum ada);
+5. `holdout_mulai` terhadap baris pertama `holdout_log.csv`;
+6. `.env`;
+7. resolusi rujukan per konteks (live, edge, realistis).
+
+Kode keluar 3 bila ada ERROR, selain itu 0.
+
+**`cek --silang KODE TANGGAL`** mencetak bar seri terpilih (§8.2) pada TANGGAL:
+- OHLCV cache (tersesuaikan), sumber, tanda bar;
+- `F(d)` dan split sesudahnya;
+- OHLC nominal (× `F`), volume nominal (÷ `F`) dikali `pengali_volume`, dan nilai transaksi.
+
+TANGGAL harus ≤ `t`. Tanpa bar pada TANGGAL, `cek --silang` mengatakannya, tanpa mencari tanggal terdekat.
+
+**`unduh`** memegang kunci (§19.3) dan memperbarui cache provider jaringan untuk semua simbol §8.2. `--simbol` membatasi ke kode tertentu; `IHSG` boleh disebut. Sesudahnya `unduh`:
+- menulis berkas kualitas `output/kualitas/<YYYYMMDD-HHMMSS>_unduh.csv`, dinilai as-of `t` (§8.6) atas seri terpilih §8.2;
+- mencetak ringkasan: jumlah per `status_ambil`, simbol yang gagal beserta pesan aslinya, catatan unduh ulang penuh, serta peringatan blokir Yahoo dan saran versi yfinance (≥ 90% `FORMAT`).
+
+Kegagalan per simbol tidak mengubah kode keluar: 0, kecuali config/input tidak valid (3), kunci dipegang (5), atau error tak terduga (1).
+
+Perintah `backtest`, `harian`, `jurnal`, dan `uji-telegram` baru tersedia pada tahap 5–7 (§23). Sebelum itu, perintah tersebut mencetak "belum tersedia" dan keluar dengan kode 1.
 
 Kode keluar dan prioritasnya ada di §20.
 
