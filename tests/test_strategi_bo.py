@@ -486,3 +486,51 @@ def test_daftar_strategi_tanpa_bo_bila_tidak_aktif():
     assert [s.kode for s in daftar] == ["PB", "MR"]
     assert not any(isinstance(s, Breakout) for s in daftar)
     assert daftar_strategi(cfg, hanya=["BO"]) == []
+
+
+# ---------------------------------------------------------------------------
+# BO3 batas kesamaan (aturan ketat "close > SMA_tren" dan "SMA_tren > SMA_panjang"), config rilis
+# ---------------------------------------------------------------------------
+
+_T_BO3 = 259
+
+
+def _evaluasi_bo3(close_seb: list[float], *, close_t, open_t, high_t, low_t):
+    from asisten_bei.indikator import k_sma
+
+    c = close_seb + [close_t]
+    df = pd.DataFrame(
+        {
+            "open": close_seb + [open_t],
+            "high": [x + 10 for x in close_seb] + [high_t],
+            "low": [x - 10 for x in close_seb] + [low_t],
+            "close": c,
+            "volume": [1_000_000.0] * len(close_seb) + [2_000_000.0],
+        },
+        index=pd.DatetimeIndex(HARI[: len(c)], name="tanggal").as_unit("ns"),
+        dtype="float64",
+    )
+    df["sumber"] = "yfinance"
+    cfg = cfg_uji()
+    dv = DataPasar({"BOBO": data_saham("BOBO", df, cfg, tgl(_T_BO3))}, None, KAL, cfg).tampilan(tgl(_T_BO3))
+    p = cfg.strategi.bo
+    baris = dv.baris("BOBO")
+    return Breakout(cfg).evaluasi(dv, "BOBO", AturanBEI(cfg)), baris[k_sma(p.sma_tren)], baris[k_sma(p.sma_panjang)]
+
+
+def test_bo3_sma_tren_sama_dengan_sma_panjang_tidak_lolos():
+    # SMA50_t = (48 × 1000 + 985 + 1015)/50 = 1000 = SMA200_t = (198 × 1000 + 985 + 1015)/200.
+    seb = [1000.0] * _T_BO3
+    seb[230] = 985.0
+    ev, sma_tren, sma_panjang = _evaluasi_bo3(seb, close_t=1015.0, open_t=1000.0, high_t=1020.0, low_t=1000.0)
+    assert sma_tren == sma_panjang == 1000.0  # prasyarat
+    assert ev.aturan_gagal == ["BO3"] and ev.sinyal is None
+
+
+def test_bo3_close_sama_dengan_sma_tren_tidak_lolos():
+    # SMA50_t = (28 × 1014 + 1008 + 20 × 980 + 1000)/50 = 1000 = close_t; SMA200_t = 925 < 1000.
+    seb = [900.0] * 210 + [1014.0] * 29 + [980.0] * 20
+    seb[220] = 1008.0
+    ev, sma_tren, sma_panjang = _evaluasi_bo3(seb, close_t=1000.0, open_t=985.0, high_t=1005.0, low_t=985.0)
+    assert sma_tren == 1000.0 and sma_panjang == 925.0  # prasyarat
+    assert ev.aturan_gagal == ["BO3"] and ev.sinyal is None

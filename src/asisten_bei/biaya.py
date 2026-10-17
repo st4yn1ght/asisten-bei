@@ -13,6 +13,8 @@ Slippage (`biaya.slippage_pct`, per sisi):
 
 from __future__ import annotations
 
+import math
+import numbers
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 
@@ -23,12 +25,25 @@ SATU = Decimal(1)
 SERATUS = Decimal(100)
 
 
-def _d(x: Decimal | int | float | str) -> Decimal:
+def ke_decimal(x: Decimal | int | float | str) -> Decimal:
+    """Decimal dari Decimal/int/float/str, termasuk skalar numpy/pandas (`numpy.float64` adalah subkelas
+    float, tetapi repr-nya `np.float64(…)`). Float lewat representasi desimal terpendeknya (2.03 → "2.03").
+    NaN/tak hingga → ValueError."""
     if isinstance(x, Decimal):
         return x
-    if isinstance(x, float):
-        return Decimal(repr(x))
+    if isinstance(x, bool):
+        raise TypeError(f"bukan angka: {x!r}")
+    if isinstance(x, numbers.Integral):
+        return Decimal(int(x))
+    if isinstance(x, numbers.Real):
+        xf = float(x)
+        if not math.isfinite(xf):
+            raise ValueError(f"angka tidak hingga/NaN: {x!r}")
+        return Decimal(repr(xf))
     return Decimal(x)
+
+
+_d = ke_decimal
 
 
 def fb(cfg: "Config") -> Decimal:

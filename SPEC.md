@@ -470,7 +470,7 @@ tanggal,open,high,low,close,volume
 
 ## 7. `config.yaml`
 
-Isi lengkap dengan nilai default. Semua kunci wajib ada, dan kunci yang tidak dikenal adalah error. Validasi tambahan: `skor.bobot` berjumlah 100 dan semuanya ≥ 0; tabel fraksi dan ARA/ARB tidak boleh tumpang tindih atau berlubang; persen berada di rentang wajar.
+Isi lengkap dengan nilai default. Semua kunci wajib ada, dan kunci yang tidak dikenal adalah error. Validasi tambahan: `skor.bobot` berjumlah 100 dan semuanya ≥ 0; tabel fraksi dan ARA/ARB tidak boleh tumpang tindih atau berlubang (harga di bawah `harga_min` baris pertama memakai baris pertama); persen berada di rentang wajar.
 
 ```yaml
 versi_config: 1                        # harus 1; nilai lain = error "config dari versi program lain"
@@ -894,6 +894,10 @@ Strategi, skor, kondisi pasar, eligibilitas, dan sizing **hanya** menerima `Data
 
 Indikator boleh dihitung tervektor atas seluruh seri demi kecepatan, dengan syarat kausal: hanya jendela bergulir ke belakang, tanpa `shift(-k)`, dan tanpa normalisasi atas seluruh sampel. Syarat ini dibuktikan oleh uji T-LA1–T-LA3 (§22.1).
 
+**Pengecualian: metadata split.** `F(d)` dan klasifikasi split belum disesuaikan (§8.4) adalah metadata cache. Keduanya ditentukan dari seluruh seri cache (rasio split dan close pada tanggal split), bukan informasi pasar untuk keputusan. Fungsinya hanya mengembalikan harga cache ke harga nominal yang memang berlaku pada `d`. Keputusan tetap hanya membaca bar ≤ `d`.
+- Uji yang mengganggu bar setelah `t` (T-LA2) memakai metadata split dari data asli yang tidak diganggu.
+- Uji pemotongan (T-LA1b) memberi data terpotong metadata split as-of `t`: split ≤ `t`, ditambah split sesudah `t` yang tertanam di harga cache.
+
 ---
 
 ## 9. Definisi indikator
@@ -1117,6 +1121,11 @@ Skor adalah heuristik pemeringkat, **bukan** peluang keberhasilan, dan laporan h
 
 Jika `izinkan_satu_lot_melebihi_risiko: true` dan `lot_risiko = 0`, maka `lot_risiko = 1`, dan rencana diberi tanda "risiko di atas anggaran". Batas e–g tetap berlaku.
 
+**Ketergantungan pada jual terjadwal** (hanya jika `slot_bebas_dari_jual_terjadwal`). Untuk setiap `REKOMENDASI`, program menghitung jual terjadwal mana yang, bila tidak terisi di open, membatalkan order itu. Caranya: §16.2 langkah 2 (cek slot lalu sektor, urutan skor) disimulasikan untuk setiap himpunan jual terjadwal yang tidak terisi, dengan asumsi order beli lain tidak batal karena data, gap, ARA, atau kas.
+- Hasilnya adalah daftar **himpunan minimal**. Contoh: `{A}` berarti "jika jual A tidak terisi, tarik"; `{A, B}` berarti "jika jual A dan B keduanya tidak terisi, tarik".
+- Kandidat yang tidak pernah batal tidak punya ketergantungan.
+- Mesin backtest tidak memerlukannya (ia mensimulasikan open langsung) dan boleh melewati perhitungan ini.
+
 Laporan menampilkan semua `REKOMENDASI`, lalu kandidat lain hingga `maks_kandidat_ditampilkan` beserta status dan alasannya. **Semua** sinyal dicatat di jurnal.
 
 ---
@@ -1212,7 +1221,7 @@ Asumsi:
 | Identitas | Kode, nama, sektor, strategi, skor (1 desimal) |
 | Alasan sinyal | Setiap aturan dengan nilai aktual, mis. "PB4: close 2.000 > high kemarin 1.985 ✓" |
 | Harga referensi | close `t` |
-| **Instruksi masuk** | "Pasang order BELI limit di **harga_maks**, N lot, sebelum pra-pembukaan `t+1`. **Segera setelah harga pembukaan terbentuk, cek order Anda.** Jika belum terisi (open > harga_maks), **tarik (withdraw) order**; jangan biarkan antre sepanjang hari, karena bisa terisi belakangan di harga yang tidak diuji backtest. Jika hanya terisi sebagian, tarik sisanya dan catat lot yang terisi saja." Bila slot atau sektor kandidat ini bergantung pada jual terjadwal: "Jika jual <kode> di pembukaan tidak terisi, tarik order beli ini." |
+| **Instruksi masuk** | "Pasang order BELI limit di **harga_maks**, N lot, sebelum pra-pembukaan `t+1`. **Segera setelah harga pembukaan terbentuk, cek order Anda.** Jika belum terisi (open > harga_maks), **tarik (withdraw) order**; jangan biarkan antre sepanjang hari, karena bisa terisi belakangan di harga yang tidak diuji backtest. Jika hanya terisi sebagian, tarik sisanya dan catat lot yang terisi saja." Untuk setiap himpunan minimal ketergantungan jual terjadwal (§13.2): "Jika jual <kode> [dan <kode> …] di pembukaan tidak terisi, tarik order beli ini." |
 | Stop loss | Level, metode, jarak %. Jika fraksi belum diverifikasi: "bulatkan stop **ke atas** ke fraksi valid". |
 | Target | PB: tabel target untuk harga isi = harga_ref, tengah, dan harga_maks, plus rumus "target = harga isi + 2 × (harga isi − stop)". BO: "trailing, diperbarui setiap sore". MR: "jual di pembukaan setelah close > SMA5 (mulai hari ke-2)". |
 | Lot, nilai, fee beli, risiko | Rp dan % ekuitas, beserta sisa anggaran risiko per lembar |

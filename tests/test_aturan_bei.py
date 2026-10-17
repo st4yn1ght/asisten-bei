@@ -189,6 +189,15 @@ def test_peringatan_hanya_untuk_aturan_yang_belum_berlaku():
     assert len(hanya_fraksi) == 1 and "Fraksi" in hanya_fraksi[0] and "stop ke ATAS" in hanya_fraksi[0]
 
 
+def test_peringatan_terverifikasi_tetapi_belum_berlaku_tidak_disebut_belum_diverifikasi():
+    fraksi, ar = BEI_AR_FRAKSI.peringatan(SEBELUM)
+    assert "belum diverifikasi" not in fraksi and "belum diverifikasi" not in ar
+    assert f"baru berlaku mulai {BERLAKU.isoformat()}" in fraksi and "stop ke ATAS" in fraksi
+    assert f"baru berlaku mulai {BERLAKU.isoformat()}" in ar
+    # Belum terverifikasi tetap "belum diverifikasi", juga sebelum tanggal berlaku.
+    assert all("belum diverifikasi" in x for x in _bei(_fraksi(terverifikasi=False)).peringatan(SEBELUM))
+
+
 @pytest.mark.parametrize("bei", [BEI_RILIS, BEI_FRAKSI], ids=["belum_terverifikasi", "fiktif"])
 @pytest.mark.parametrize("harga", [0, 0.0, -5, Decimal("-0.5")])
 def test_harga_tidak_positif_ditolak(bei, harga):
@@ -801,3 +810,32 @@ def test_terkunci_multi_baris_memakai_rentang_harga_acuan():
     assert BEI_AR_MULTI.terkunci_ara(146, 146, 146, 146, 119, SESUDAH) is False
     assert BEI_AR_MULTI.terkunci_arb(72, 72, 72, 72, 119, SESUDAH) is True
     assert BEI_AR_MULTI.terkunci_ara(178, 178, 178, 178, 119, SESUDAH) is True
+
+
+def test_bulat_atas_batas_rentang_kelipatan_fraksi_bawah_saja():
+    tabel = [  # FIKTIF – KHUSUS UJI: 100 kelipatan 5 (baris 1) tetapi bukan kelipatan 3 (baris 2)
+        {"harga_min": 0, "harga_maks": 100, "fraksi": 5},
+        {"harga_min": 100, "harga_maks": None, "fraksi": 3},
+    ]
+    bei = _bei(_fraksi(tabel=tabel))
+    # ⌈98/5⌉×5 = 100 = harga_maks baris 1 (eksklusif) → masuk baris 2: 100 bukan kelipatan 3 → 102.
+    assert bei.bulat_atas(98, SESUDAH).nilai == Decimal(102)
+    assert bei.harga_valid(Decimal(102), SESUDAH) and not bei.harga_valid(Decimal(100), SESUDAH)
+    # ke bawah dari 101: 100 tidak valid → 99? bukan kelipatan 5 di baris 1 → 95.
+    assert bei.bulat_bawah(101, SESUDAH).nilai == Decimal(95)
+
+
+def test_skalar_numpy_pandas_diterima_sama_dengan_float():
+    import numpy as np
+    import pandas as pd
+
+    baris = pd.DataFrame({"open": [873.0], "high": [873.0], "low": [873.0], "close": [873.0]}).iloc[0]
+    assert isinstance(baris["close"], np.floating)
+    bei = BEI_AR_FRAKSI
+    assert bei.terkunci_arb(baris["open"], baris["high"], baris["low"], baris["close"], ACUAN, SESUDAH) == (
+        bei.terkunci_arb(873.0, 873.0, 873.0, 873.0, ACUAN, SESUDAH)
+    )
+    assert bei.bulat_bawah(np.float64(2029.9999999998), SESUDAH) == bei.bulat_bawah(2029.9999999998, SESUDAH)
+    assert bei.bulat_atas(np.int64(1003), SESUDAH) == bei.bulat_atas(1003, SESUDAH)
+    with pytest.raises(ValueError):
+        bei.bulat_bawah(np.float64("nan"), SESUDAH)

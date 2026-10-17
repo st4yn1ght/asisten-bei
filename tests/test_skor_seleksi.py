@@ -127,6 +127,8 @@ def jalankan(
     lolos=("PB", "BO", "MR"),
     dedup: bool = True,
     sektor: dict[str, str] | None = None,
+    mode: str = "live",
+    hitung_ketergantungan: bool = True,
 ):
     """`seleksi` dengan konteks live. `sektor`: peta kode → sektor yang ketat (kode tak dikenal →
     KeyError, sehingga terbukti seleksi tidak menanyakan sektor posisi lewat `sektor_dari`).
@@ -140,11 +142,12 @@ def jalankan(
         list(daftar),
         status_pasar=status,
         portofolio=portofolio if portofolio is not None else porto(),
-        konteks=config.resolusi_konteks(cfg, "live"),
+        konteks=config.resolusi_konteks(cfg, mode),
         cfg=cfg,
         strategi_lolos=lolos,
         deduplikasi=dedup,
         sektor_dari=sektor_dari,
+        hitung_ketergantungan=hitung_ketergantungan,
     )
 
 
@@ -622,7 +625,7 @@ def test_slot_dibebaskan_jual_terjadwal_hanya_bila_flag(bebas):
     h = jalankan([berskor("NEW", 50, "MR", C)], portofolio=pf, cfg=cfg)
     k = satu(h, "NEW", "MR")
     if bebas:  # slot = 3 − (3 − 1) = 1, dan slot itu bergantung pada jual JUAL
-        assert (h.slot_awal, k.status, k.bergantung_jual) == (1, REKOMENDASI, ("JUAL",))
+        assert (h.slot_awal, k.status, k.bergantung_jual) == (1, REKOMENDASI, (("JUAL",),))
     else:  # slot = 3 − 3 = 0
         assert (h.slot_awal, k.status, k.bergantung_jual) == (0, SLOT_PENUH, ())
 
@@ -633,7 +636,7 @@ def test_bergantung_jual_hanya_untuk_kandidat_yang_memakai_slot_jual():
     h = jalankan([berskor("K1", 60, "MR", C), berskor("K2", 50, "MR", C)], portofolio=pf)
     assert [k.status for k in h.kandidat] == [REKOMENDASI, REKOMENDASI]
     assert satu(h, "K1", "MR").bergantung_jual == ()
-    assert satu(h, "K2", "MR").bergantung_jual == ("JUAL",)
+    assert satu(h, "K2", "MR").bergantung_jual == (("JUAL",),)
 
 
 # ---------------------------------------------------------------------------
@@ -698,7 +701,7 @@ def test_batas_sektor_dikurangi_jual_terjadwal_hanya_bila_flag(bebas):
     h = jalankan([berskor("K1", 60, "MR", C), berskor("K2", 50, "MR", C)], portofolio=pf, cfg=cfg, sektor=sektor)
     k1, k2 = satu(h, "K1", "MR"), satu(h, "K2", "MR")
     if bebas:  # Energi: 1 − 1 = 0 < 1 → diterima, bergantung pada jual JUAL (slot tidak: 3 − 1 = 2 ≥ 1)
-        assert (k1.status, k1.bergantung_jual) == (REKOMENDASI, ("JUAL",))
+        assert (k1.status, k1.bergantung_jual) == (REKOMENDASI, (("JUAL",),))
     else:
         assert (k1.status, k1.bergantung_jual) == (BATAS_SEKTOR, ())
     assert (k2.status, k2.bergantung_jual) == (REKOMENDASI, ())
@@ -877,3 +880,144 @@ def test_backtest_per_strategi_tanpa_gerbang_dan_tanpa_deduplikasi():
 def test_seleksi_tanpa_sinyal():
     h = jalankan([])
     assert h.kandidat == () and h.rekomendasi == [] and h.daftar_pantau == []
+
+
+# ---------------------------------------------------------------------------
+# Ketergantungan pada jual terjadwal (§13.2, §14.3): himpunan minimal yang tepat
+# ---------------------------------------------------------------------------
+
+
+def test_bergantung_jual_cukup_salah_satu_dari_dua_jual():
+    # P (Bank) + J1 (Energi, jual) + J2 (Tambang, jual): slot = 3 − (3 − 2) = 2. K1 hanya butuh SATU slot:
+    # batal di open hanya bila J1 DAN J2 sama-sama tidak terisi (terbuka 3 ≥ 3).
+    pf = porto(pos("P", "Bank"), pos("J1", "Energi", jual=True), pos("J2", "Tambang", jual=True))
+    h = jalankan([berskor("K1", 80, "MR", C)], portofolio=pf, sektor={"K1": "Properti"})
+    assert satu(h, "K1", "MR").bergantung_jual == (("J1", "J2"),)
+    # Dua kandidat: K1 (skor tertinggi) batal hanya bila keduanya gagal; K2 batal bila salah satu gagal.
+    h = jalankan([berskor("K1", 80, "MR", C), berskor("K2", 70, "MR", C)], portofolio=pf,
+                 sektor={"K1": "Properti", "K2": "Telko"})
+    assert satu(h, "K1", "MR").bergantung_jual == (("J1", "J2"),)
+    assert satu(h, "K2", "MR").bergantung_jual == (("J1",), ("J2",))
+
+
+def test_bergantung_jual_sektor_tidak_menular_ke_kandidat_sektor_lain():
+    # J (Energi, jual) + P (Bank): slot = 3 − (2 − 1) = 2. K2 Energi (90) butuh sektor dari J; K1 Properti (80)
+    # tidak: bila J gagal, K2 batal sektor (BATAL_SEKTOR_SAAT_OPEN) dan slotnya dipakai K1 (§16.2).
+    pf = porto(pos("J", "Energi", jual=True), pos("P", "Bank"))
+    h = jalankan([berskor("K2", 90, "MR", C), berskor("K1", 80, "MR", C)], portofolio=pf,
+                 sektor={"K2": "Energi", "K1": "Properti"})
+    assert [k.status for k in h.kandidat] == [REKOMENDASI, REKOMENDASI]
+    assert satu(h, "K2", "MR").bergantung_jual == (("J",),)
+    assert satu(h, "K1", "MR").bergantung_jual == ()
+
+
+def test_bergantung_jual_sektor_dengan_maks_per_sektor_dua():
+    cfg = cfg_uji({"risiko.maks_per_sektor": 2})
+    # Energi: JUAL (jual) saja → terpakai 0; kandidat Energi tetap muat walau JUAL gagal (1 < 2).
+    h = jalankan([berskor("AAAA", 80, "MR", C)], portofolio=porto(pos("JUAL", "Energi", jual=True)), cfg=cfg,
+                 sektor={"AAAA": "Energi"})
+    assert (satu(h, "AAAA", "MR").status, satu(h, "AAAA", "MR").bergantung_jual) == (REKOMENDASI, ())
+    # Ditambah LAMA (Energi, tidak dijual): bila JUAL gagal, Energi 2 ≥ 2 → batal.
+    h = jalankan([berskor("AAAA", 80, "MR", C)], cfg=cfg, sektor={"AAAA": "Energi"},
+                 portofolio=porto(pos("JUAL", "Energi", jual=True), pos("LAMA", "Energi")))
+    assert (satu(h, "AAAA", "MR").status, satu(h, "AAAA", "MR").bergantung_jual) == (REKOMENDASI, (("JUAL",),))
+
+
+def test_bergantung_jual_dilewati_bila_diminta_atau_flag_mati():
+    pf = porto(pos("P1", "S1"), pos("P2", "S2"), pos("JUAL", "S_JUAL", jual=True))
+    h = jalankan([berskor("NEW", 50, "MR", C)], portofolio=pf, hitung_ketergantungan=False)
+    assert (satu(h, "NEW", "MR").status, satu(h, "NEW", "MR").bergantung_jual) == (REKOMENDASI, ())
+
+
+def _simulasi_open(rek, posisi, gagal, maks_posisi, maks_sektor):
+    """§16.2 langkah 2 (slot lalu sektor, urutan skor) — pembanding independen untuk uji properti."""
+    jual = [p for p in posisi if p.dijadwalkan_jual]
+    terbuka = len(posisi) - sum(1 for p in jual if p.kode not in gagal)
+    sektor = {}
+    for p in posisi:
+        if not (p.dijadwalkan_jual and p.kode not in gagal):
+            sektor[p.sektor] = sektor.get(p.sektor, 0) + 1
+    batal = set()
+    for kode, sek in rek:
+        if terbuka >= maks_posisi or (maks_sektor is not None and sektor.get(sek, 0) >= maks_sektor):
+            batal.add(kode)
+            continue
+        terbuka += 1
+        sektor[sek] = sektor.get(sek, 0) + 1
+    return batal
+
+
+@pytest.mark.parametrize("benih", range(40))
+def test_bergantung_jual_sama_dengan_simulasi_open_semua_skenario(benih):
+    """Properti: untuk SETIAP himpunan jual yang gagal, kandidat batal di open ⇔ himpunan itu memuat salah
+    satu himpunan minimal `bergantung_jual`-nya."""
+    import itertools
+    import random
+
+    rnd = random.Random(benih)
+    maks_posisi = rnd.randint(2, 5)
+    maks_sektor = rnd.choice([None, 1, 2])
+    cfg = cfg_uji({"risiko.maks_posisi": maks_posisi, "risiko.maks_per_sektor": maks_sektor})
+    sektor_list = ["Bank", "Energi", "Tambang"]
+    posisi = [pos(f"P{i}", rnd.choice(sektor_list), jual=rnd.random() < 0.6) for i in range(rnd.randint(1, maks_posisi))]
+    kandidat = {f"K{i}": rnd.choice(sektor_list) for i in range(rnd.randint(1, 5))}
+    daftar = [berskor(k, 90 - i, "MR", C) for i, k in enumerate(kandidat)]
+    h = jalankan(daftar, portofolio=porto(*posisi), cfg=cfg, sektor=kandidat)
+    rek = [(k.kode, kandidat[k.kode]) for k in h.kandidat if k.status == REKOMENDASI]
+    jual = [p.kode for p in posisi if p.dijadwalkan_jual]
+    assert _simulasi_open(rek, posisi, set(), maks_posisi, maks_sektor) == set()  # semua jual terisi → semua isi
+    for r in range(len(jual) + 1):
+        for gagal in itertools.combinations(jual, r):
+            batal = _simulasi_open(rek, posisi, set(gagal), maks_posisi, maks_sektor)
+            for kode, _ in rek:
+                minimal = satu(h, kode, "MR").bergantung_jual
+                assert (kode in batal) == any(set(m) <= set(gagal) for m in minimal), (gagal, kode, minimal)
+
+
+# ---------------------------------------------------------------------------
+# P4: anggaran risiko, pengali HATI-HATI, dan konteks (mode backtest) dari config
+# ---------------------------------------------------------------------------
+
+
+def test_anggaran_risiko_dari_config():
+    cfg = cfg_uji({"risiko.risiko_per_transaksi_pct": 0.5})
+    h = jalankan([berskor("AAAA", 90, "PB", A), berskor("CCCC", 70, "MR", C)], cfg=cfg)
+    # 3.000.000 × 0,5% = 15.000 → A tak terjangkau (15.164,83), C 2 lot (risiko 10.024,195)
+    assert h.anggaran_risiko == Decimal(15000)
+    assert satu(h, "AAAA").alasan == (
+        "risiko 1 lot = Rp 15.164,83 (0,51% ekuitas) > anggaran Rp 15.000 (0,50%, status BOLEH BELI)"
+    )
+    assert satu(h, "CCCC", "MR").sizing.lot == 2
+
+
+def test_pengali_risiko_hati_hati_dari_config():
+    cfg = cfg_uji({"risiko.hati_hati.pengali_risiko": 0.25})
+    h = jalankan([berskor("CCCC", 70, "MR", C)], status="HATI_HATI", cfg=cfg)
+    # 30.000 × 0,25 = 7.500 → C: 7.500 / 5.012,0975 → 1 lot
+    assert h.anggaran_risiko == Decimal(7500)
+    assert satu(h, "CCCC", "MR").sizing.lot == 1
+
+
+def test_konteks_mode_backtest_menentukan_slot_sektor_dan_alokasi():
+    cfg = cfg_uji({
+        "backtest.mode.edge.maks_posisi": 5,
+        "backtest.mode.edge.maks_per_sektor": 2,
+    })
+    sektor = {f"K{i}": ("Energi" if i < 3 else f"S{i}") for i in range(6)}
+    daftar = [berskor(f"K{i}", 90 - i, "MR", C) for i in range(6)]
+    ekuitas = Decimal(1_000_000_000)
+    h = jalankan(daftar, cfg=cfg, sektor=sektor, mode="edge", portofolio=porto(kas=ekuitas, ekuitas=ekuitas))
+    # Energi maks 2 (K2 BATAS_SEKTOR), slot 5 → K0, K1, K3, K4, K5 diterima.
+    assert [k.status for k in h.kandidat] == [REKOMENDASI, REKOMENDASI, BATAS_SEKTOR] + [REKOMENDASI] * 3
+    assert h.slot_awal == 5
+    assert h.alokasi_maks == ekuitas / 5
+    # Konteks live dengan config yang sama: 3 slot, 1 per sektor.
+    h = jalankan(daftar, cfg=cfg, sektor=sektor, portofolio=porto(kas=ekuitas, ekuitas=ekuitas))
+    assert [k.status for k in h.kandidat] == [REKOMENDASI, BATAS_SEKTOR, BATAS_SEKTOR, REKOMENDASI, REKOMENDASI,
+                                              SLOT_PENUH]
+
+
+def test_k_likuid_ambang_nol():
+    cfg = cfg_uji({"likuiditas.nilai_transaksi_min_idr": 0})
+    assert hitung_skor(sinyal("AAAA", rata_nilai=1e9), 0.5, cfg).k_likuid == 1.0
+    assert hitung_skor(sinyal("AAAA", rata_nilai=0.0), 0.5, cfg).k_likuid == 0.0

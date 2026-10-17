@@ -716,3 +716,22 @@ def test_sizing_vs_brute_force_acak(idx, izinkan):
                     v_beli = h.lembar * isi
                     rugi = v_beli + _ref_fee(v_beli, ref.fb, ref.m, ref.mode) - ref.hasil_stop(h.lot, S)
                     assert rugi <= anggaran, (konteks, open_)
+
+
+def test_sisa_anggaran_per_lembar_contoh_c():
+    h = _sz(*C)  # §14.2 C: 5 lot, risiko 25.060,4875
+    assert h.lot == 5 and h.risiko_idr == D("25060.4875")
+    assert h.sisa_anggaran_per_lembar == (D(30000) - D("25060.4875")) / D(500) == D("9.879025")
+    assert _sz(*B).sisa_anggaran_per_lembar is None  # 0 lot
+
+
+@pytest.mark.parametrize("S", [0, -5])
+def test_stop_tidak_positif_value_error(S):
+    with pytest.raises(ValueError):
+        _sz(D(1000), D(S))
+
+
+def test_rata_nilai_skalar_numpy_diterima():
+    import numpy as np
+
+    assert _sz(*C, rata=np.float64(RATA_NILAI)) == _sz(*C)

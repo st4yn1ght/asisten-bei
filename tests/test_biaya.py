@@ -318,3 +318,45 @@ def test_rr_bersih_a_1_81():
     rr = biaya.rr_bersih(D(2314), D(2030), D(1888), CFG)
     assert rr == D("275.17") / D("151.64828")
     assert rr.quantize(D("0.01"), rounding=ROUND_HALF_UP) == D("1.81")
+
+
+# ---------------------------------------------------------------------------
+# Kasus tepi fee dan konversi angka
+# ---------------------------------------------------------------------------
+
+
+def test_fee_nilai_nol_tanpa_fee_minimum():
+    cfg = _cfg(fee_minimum_idr=5000)
+    assert biaya.fee_beli(D(0), cfg) == 0 and biaya.fee_jual(D(0), cfg) == 0
+    assert biaya.biaya_beli(0, D(2030), cfg) == 0 and biaya.hasil_jual(0, D(2030), cfg) == 0
+    assert biaya.fee_beli(D(1), cfg) == 5000  # nilai > 0 → minimum berlaku
+
+
+def test_fee_nilai_negatif_ditolak():
+    with pytest.raises(ValueError):
+        biaya.fee_beli(D(-1), CFG)
+    with pytest.raises(ValueError):
+        biaya.fee_jual(D(-1), CFG)
+
+
+def test_rr_bersih_risiko_nol_value_error():
+    cfg = _cfg(fee_beli_pct=0, fee_jual_pct=0, slippage_pct=0)
+    assert biaya.risiko_lembar(D(1000), D(1000), cfg) == 0
+    with pytest.raises(ValueError):
+        biaya.rr_bersih(D(1100), D(1000), D(1000), cfg)
+
+
+def test_ke_decimal_skalar_numpy_dan_float():
+    import numpy as np
+
+    assert biaya.ke_decimal(2.03) == D("2.03")  # representasi terpendek, bukan biner penuh
+    assert biaya.ke_decimal(np.float64(2.03)) == D("2.03")
+    assert biaya.ke_decimal(np.float32(0.5)) == D("0.5")
+    assert biaya.ke_decimal(np.int64(7)) == D(7)
+    assert biaya.ke_decimal("1.5") == D("1.5")
+    for buruk in (float("nan"), float("inf"), np.float64("nan")):
+        with pytest.raises(ValueError):
+            biaya.ke_decimal(buruk)
+    with pytest.raises(TypeError):
+        biaya.ke_decimal(True)
+    assert biaya.harga_isi_beli(np.float64(2000.0), D(2030), CFG) == biaya.harga_isi_beli(2000.0, D(2030), CFG)

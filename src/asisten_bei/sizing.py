@@ -38,12 +38,7 @@ if TYPE_CHECKING:  # pragma: no cover
 Pembatas = Literal["risiko", "alokasi", "likuid", "kas"]
 
 
-def _d(x) -> Decimal:
-    if isinstance(x, Decimal):
-        return x
-    if isinstance(x, float):
-        return Decimal(repr(x))
-    return Decimal(x)
+_d = biaya.ke_decimal
 
 
 def _floor(x: Decimal) -> int:

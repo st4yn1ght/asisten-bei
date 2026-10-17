@@ -27,6 +27,8 @@ from datetime import date
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_EVEN, Decimal
 from typing import TYPE_CHECKING
 
+from .biaya import ke_decimal
+
 if TYPE_CHECKING:  # pragma: no cover
     from .config import BarisBatas, BarisFraksi, Config
 
@@ -36,16 +38,9 @@ _NOL = Decimal(0)
 
 
 def ke_desimal_harga(x: Decimal | float | int) -> Decimal:
-    """Harga sebagai Decimal tanpa derau float (6 desimal, ROUND_HALF_EVEN)."""
-    if isinstance(x, Decimal):
-        d = x
-    elif isinstance(x, float):
-        if x != x or x in (float("inf"), float("-inf")):
-            raise ValueError(f"harga tidak hingga/NaN: {x!r}")
-        d = Decimal(repr(x))
-    else:
-        d = Decimal(x)
-    return d.quantize(_PRESISI, rounding=ROUND_HALF_EVEN)
+    """Harga sebagai Decimal tanpa derau float (6 desimal, ROUND_HALF_EVEN). Menerima juga skalar
+    numpy/pandas (`biaya.ke_decimal`); NaN/tak hingga → ValueError."""
+    return ke_decimal(x).quantize(_PRESISI, rounding=ROUND_HALF_EVEN)
 
 
 def _kelipatan(x: Decimal, f: Decimal, arah: str) -> Decimal:
@@ -195,13 +190,27 @@ class AturanBEI:
     # -- peringatan untuk laporan -------------------------------------------------------
 
     def peringatan(self, tanggal: date) -> list[str]:
-        """Item aturan BEI yang belum berlaku pada `tanggal` (ditampilkan di laporan §18.1 butir 11)."""
+        """Item aturan BEI yang belum berlaku pada `tanggal` (ditampilkan di laporan §18.1 butir 11).
+        Aturan yang sudah diverifikasi tetapi `berlaku_mulai`-nya belum tiba disebut demikian, bukan
+        "belum diverifikasi"."""
         hasil = []
+        f, ar = self._fraksi, self._ar
         if not self.fraksi_berlaku(tanggal):
+            if f.terverifikasi and f.berlaku_mulai is not None and tanggal < f.berlaku_mulai:
+                awal = f"Fraksi harga terverifikasi, tetapi baru berlaku mulai {f.berlaku_mulai.isoformat()}"
+            else:
+                awal = "Fraksi harga belum diverifikasi"
             hasil.append(
-                "Fraksi harga belum diverifikasi: harga hanya dibulatkan ke rupiah. Saat memasang order, "
-                "bulatkan harga limit beli dan target ke BAWAH, stop ke ATAS, ke fraksi valid (cek idx.co.id)."
+                f"{awal}: harga hanya dibulatkan ke rupiah. Saat memasang order, bulatkan harga limit beli dan "
+                "target ke BAWAH, stop ke ATAS, ke fraksi valid (cek idx.co.id)."
             )
         if not self.auto_reject_berlaku(tanggal):
-            hasil.append("Batas ARA/ARB belum diverifikasi: tidak dimodelkan di backtest/jurnal (cek idx.co.id).")
+            if (
+                ar.terverifikasi and ar.berlaku_mulai is not None and tanggal < ar.berlaku_mulai
+                and ar.harga_acuan == "close_kemarin"
+            ):
+                awal = f"Batas ARA/ARB terverifikasi, tetapi baru berlaku mulai {ar.berlaku_mulai.isoformat()}"
+            else:
+                awal = "Batas ARA/ARB belum diverifikasi"
+            hasil.append(f"{awal}: tidak dimodelkan di backtest/jurnal (cek idx.co.id).")
         return hasil

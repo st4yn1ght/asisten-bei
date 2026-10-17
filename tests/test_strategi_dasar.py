@@ -71,6 +71,13 @@ def test_stop_tidak_sah_gagal_cek_stop_tanpa_pengecualian(kw):
     assert [c.kode for c in ev.cek] == ["PB1", "STOP"]
 
 
+@pytest.mark.parametrize("stop", [1e-9, 4e-7, 7.1e-15])
+def test_stop_derau_float_di_atas_nol_gagal_cek_stop(stop):
+    # stop > 0 dalam float tetapi 0 setelah dibersihkan ke 6 desimal → cek STOP gagal, bukan ValueError.
+    ev = _ev(close=1000.0, atr=20.0, stop=stop)
+    assert ev.sinyal is None and ev.aturan_gagal == ["STOP"]
+
+
 def test_stop_tepat_di_atas_nol_masih_sinyal():
     ev = _ev(close=10.0, atr=4.0, stop=0.4)  # stop ⌈0,4⌉ = 1, harga_maks ⌊12⌋ = 12
     assert ev.sinyal is not None and ev.sinyal.stop == Decimal(1) and ev.sinyal.harga_maks == Decimal(12)

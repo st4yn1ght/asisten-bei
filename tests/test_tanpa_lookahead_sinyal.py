@@ -38,7 +38,7 @@ Maka:
 1. Uji utama: data dipotong = bar ≤ t + metadata split as-of t (split ≤ t, ditambah split sesudah t yang
    penyesuaiannya tertanam di harga cache; `_split_potong`). Semua keluaran
    wajib IDENTIK, termasuk `faktor_split`. Ini membuktikan strategi/skor/eligibilitas hanya memakai bar
-   ≤ t; jalur F(t) = 5 (CCCC sebelum HARI[350], DDDD sebelum HARI[380]) ikut teruji.
+   ≤ t; jalur F(t) = 5 (CCCC sebelum HARI[350]) ikut teruji.
 2. Uji rekonstruksi: pembanding paling setia untuk CCCC sebelum split adalah cache sebagaimana diunduh
    pada t — harga NOMINAL (tersesuaikan × 5), volume ÷ 5, tanpa split. Keputusan (pola lolos cek, ada
    tidaknya sinyal, valid) wajib sama dan level nominal (harga_ref, harga_maks, stop, atr) sama; hanya

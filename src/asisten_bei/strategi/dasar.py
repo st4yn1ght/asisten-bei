@@ -171,7 +171,12 @@ class Strategi(ABC):
         f = float(dv.faktor_split(kode))
         gap = float(self.cfg.entry.gap_maks_atr)
         nilai = (close, atr, stop_tersesuaikan, f)
-        if any(math.isnan(x) or math.isinf(x) for x in nilai) or not atr > 0 or not stop_tersesuaikan * f > 0:
+        # Positif dinilai SETELAH pembersihan derau (6 desimal): stop 1e-9 → 0 → tidak sah, bukan ValueError.
+        if (
+            any(math.isnan(x) or math.isinf(x) for x in nilai)
+            or not atr > 0
+            or not ke_desimal_harga(stop_tersesuaikan * f) > 0
+        ):
             cek.append(
                 CekAturan(
                     "STOP",

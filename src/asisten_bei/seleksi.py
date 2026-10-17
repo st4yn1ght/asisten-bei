@@ -18,12 +18,18 @@ Langkah:
      kas tersedia = kas (+ estimasi hasil jual terjadwal bila `dana_jual_langsung_dipakai`).
 9.   Per kandidat, status pertama yang berlaku: SLOT_PENUH, BATAS_ENTRY_HARIAN, BATAS_SEKTOR,
      TIDAK_TERJANGKAU (risiko), TIDAK_TERJANGKAU (alokasi), TIDAK_LIKUID, KAS_KURANG, REKOMENDASI.
+
+Ketergantungan pada jual terjadwal (§13.2, §14.3): untuk setiap REKOMENDASI, himpunan minimal jual
+terjadwal yang bila tidak terisi membatalkan order di open (§16.2 langkah 2: slot lalu sektor, urutan
+skor), dihitung dengan mensimulasikan setiap himpunan jual yang gagal. `hitung_ketergantungan=False`
+melewatinya (mesin backtest mensimulasikan open sendiri).
 """
 
 from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Collection, Sequence
+from itertools import combinations
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -80,7 +86,9 @@ class KandidatSeleksi:
     status: str  # enum status_sinyal §4.3
     alasan: str  # "" untuk REKOMENDASI
     sizing: HasilSizing | None = None
-    bergantung_jual: tuple[str, ...] = ()  # jual terjadwal yang membebaskan slot/sektor kandidat ini
+    # Himpunan minimal jual terjadwal yang, bila semuanya tidak terisi di open, membatalkan order ini
+    # (§13.2). (("A",),) = "jika jual A tidak terisi, tarik"; (("A", "B"),) = "jika A dan B tidak terisi".
+    bergantung_jual: tuple[tuple[str, ...], ...] = ()
 
     @property
     def kode(self) -> str:
@@ -138,12 +146,13 @@ def seleksi(
     strategi_lolos: Collection[str] | None,
     deduplikasi: bool,
     sektor_dari: Callable[[str], str],
+    hitung_ketergantungan: bool = True,
 ) -> HasilSeleksi:
     """Status §13.2 untuk setiap sinyal. `sektor_dari(kode)`: sektor kandidat (mis. `AturanUniverse.sektor`)."""
     tanggal = sinyal[0].sinyal.tanggal if sinyal else date.min
     status: dict[int, tuple[str, str]] = {}  # id(sinyal) → (status, alasan)
     sizing_per: dict[int, HasilSizing] = {}
-    bergantung: dict[int, tuple[str, ...]] = {}
+    bergantung: dict[int, tuple[tuple[str, ...], ...]] = {}
 
     # 1–2. Validasi strategi.
     antre: list[SinyalBerskor] = []
@@ -205,7 +214,6 @@ def seleksi(
     n_buka = len(portofolio.posisi)
     jual = [p for p in portofolio.posisi if p.dijadwalkan_jual]
     bebas = bool(cfg.risiko.slot_bebas_dari_jual_terjadwal)
-    slot_tanpa_jual = konteks.maks_posisi - n_buka
     slot = konteks.maks_posisi - (n_buka - (len(jual) if bebas else 0))
     kas = Decimal(portofolio.kas_idr)
     if cfg.risiko.dana_jual_langsung_dipakai:
@@ -244,6 +252,7 @@ def seleksi(
             sektor_terpakai[sek] -= len(kode)
     maks_sektor = konteks.maks_per_sektor
     diterima = 0
+    rekomendasi: list[tuple[int, str]] = []  # (id sinyal, sektor), urutan skor
     label = TAMPILAN_STATUS.get(status_pasar, status_pasar)
 
     for s in antre:
@@ -295,12 +304,48 @@ def seleksi(
         diterima += 1
         kas -= hs.biaya_beli_idr
         sektor_terpakai[sektor] += 1
-        dep: list[str] = []
-        if bebas and diterima > slot_tanpa_jual:
-            dep.extend(p.kode for p in jual)
-        if bebas and maks_sektor is not None and sektor_terpakai[sektor] + len(sektor_jual.get(sektor, ())) > maks_sektor:
-            dep.extend(sektor_jual.get(sektor, ()))
-        if dep:
-            bergantung[id(s)] = tuple(dict.fromkeys(dep))
+        rekomendasi.append((id(s), sektor))
 
+    if bebas and jual and rekomendasi and hitung_ketergantungan:
+        bergantung.update(
+            _ketergantungan_jual(rekomendasi, jual, n_buka, konteks.maks_posisi, sektor_buka, maks_sektor)
+        )
     return _hasil()
+
+
+def _ketergantungan_jual(
+    rekomendasi: Sequence[tuple[int, str]],
+    jual: Sequence[PosisiTerbuka],
+    n_buka: int,
+    maks_posisi: int,
+    sektor_buka: Counter,
+    maks_sektor: int | None,
+) -> dict[int, tuple[tuple[str, ...], ...]]:
+    """Himpunan minimal jual terjadwal gagal yang membatalkan setiap rekomendasi (§13.2, §16.2 langkah 2).
+
+    Untuk setiap himpunan G jual yang tidak terisi: posisi terbuka = n_buka − (jual − |G|), sektor
+    dikurangi jual yang terisi; rekomendasi diproses berurutan (cek slot, lalu sektor). Order beli lain
+    dianggap tidak batal karena data/gap/ARA/kas. Kandidat yang batal pada G dicatat; yang disimpan hanya
+    G yang tidak memuat G' lain yang juga membatalkannya. Banyaknya himpunan 2^|jual| (|jual| ≤ maks_posisi).
+    """
+    batal: dict[int, list[frozenset[int]]] = {i: [] for i, _ in rekomendasi}
+    for r in range(1, len(jual) + 1):
+        for gagal in combinations(range(len(jual)), r):
+            g = frozenset(gagal)
+            terbuka = n_buka - (len(jual) - len(g))
+            sektor = Counter(sektor_buka)
+            for j, p in enumerate(jual):
+                if j not in g:
+                    sektor[p.sektor] -= 1
+            for i, sek in rekomendasi:
+                if terbuka >= maks_posisi or (maks_sektor is not None and sektor[sek] >= maks_sektor):
+                    if not any(m <= g for m in batal[i]):  # r naik: subset minimal tercatat lebih dulu
+                        batal[i].append(g)
+                    continue
+                terbuka += 1
+                sektor[sek] += 1
+    return {
+        i: tuple(tuple(jual[j].kode for j in sorted(m)) for m in daftar)
+        for i, daftar in batal.items()
+        if daftar
+    }
