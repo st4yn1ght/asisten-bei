@@ -11,9 +11,10 @@ Arah pembulatan selalu menjaga risiko ≤ anggaran (§4.1): `harga_maks` dan tar
 stop dan trailing ke **atas**.
 
 Konvensi tabel (divalidasi `config.py`): baris bersambung, `harga_min` inklusif, `harga_maks` eksklusif,
-baris terakhir `harga_maks` null. Harga valid = kelipatan fraksi rentang tempat harga itu berada
-(diasumsikan batas rentang di tabel resmi juga kelipatan fraksinya). Harga di bawah `harga_min` baris
-pertama memakai baris pertama.
+baris terakhir `harga_maks` null. Harga valid = kelipatan fraksi rentang tempat harga itu berada. Harga
+di bawah `harga_min` baris pertama memakai baris pertama. Pembulatan memberi harga valid **terdekat**
+pada arahnya, melintasi batas rentang bila perlu — juga untuk tabel yang batas rentangnya bukan
+kelipatan fraksi.
 
 Harga masuk sebagai float (indikator) dibersihkan dulu dari derau float dengan `ke_desimal_harga`
 (dibulatkan ke 6 desimal) agar 2.029,9999999998 tidak dibulatkan ke bawah menjadi 2.029.
@@ -31,7 +32,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 _PRESISI = Decimal("0.000001")
 _SATU = Decimal(1)
-_MAKS_LANGKAH = 64
+_NOL = Decimal(0)
 
 
 def ke_desimal_harga(x: Decimal | float | int) -> Decimal:
@@ -70,12 +71,16 @@ class AturanBEI:
         f = self._fraksi
         return bool(f.terverifikasi and f.tabel and f.berlaku_mulai is not None and tanggal >= f.berlaku_mulai)
 
-    def _baris_fraksi(self, harga: Decimal) -> "BarisFraksi":
+    def _indeks_baris(self, harga: Decimal) -> int:
+        """Indeks baris rentang `harga` (tabel bersambung; di bawah baris pertama → baris pertama)."""
         tabel = self._fraksi.tabel
-        for b in tabel:
+        for i, b in enumerate(tabel):
             if b.harga_maks is None or harga < b.harga_maks:
-                return b if harga >= b.harga_min else tabel[0]
-        return tabel[-1]
+                return i
+        return len(tabel) - 1
+
+    def _baris_fraksi(self, harga: Decimal) -> "BarisFraksi":
+        return self._fraksi.tabel[self._indeks_baris(harga)]
 
     def fraksi(self, harga: Decimal | float, tanggal: date) -> Decimal | None:
         """Fraksi yang berlaku untuk `harga` pada `tanggal`, atau None bila fraksi tidak berlaku."""
@@ -91,24 +96,44 @@ class AturanBEI:
             return h == h.to_integral_value()
         return h % f == 0
 
+    def _valid_bawah(self, h: Decimal) -> Decimal:
+        """Harga valid terbesar ≤ h (0 bila tidak ada harga valid > 0 di bawah h)."""
+        tabel = self._fraksi.tabel
+        i = self._indeks_baris(h)
+        for j in range(i, -1, -1):
+            b = tabel[j]
+            f = Decimal(b.fraksi)
+            if j == i:
+                c = _kelipatan(h, f, ROUND_FLOOR)
+            else:  # kelipatan terbesar yang < harga_maks (eksklusif) baris j
+                c = _kelipatan(Decimal(b.harga_maks), f, ROUND_CEILING) - f
+            bawah = Decimal(b.harga_min) if j > 0 else _NOL
+            if c >= bawah and c > 0:
+                return c
+        return _NOL
+
+    def _valid_atas(self, h: Decimal) -> Decimal:
+        """Harga valid terkecil ≥ h."""
+        tabel = self._fraksi.tabel
+        i = self._indeks_baris(h)
+        for j in range(i, len(tabel)):
+            b = tabel[j]
+            c = _kelipatan(h if j == i else Decimal(b.harga_min), Decimal(b.fraksi), ROUND_CEILING)
+            if b.harga_maks is None or c < Decimal(b.harga_maks):
+                return c
+        raise AssertionError("baris terakhir tabel fraksi wajib tanpa batas atas")  # pragma: no cover
+
     def _bulat(self, harga: Decimal | float, tanggal: date, arah: str) -> HargaBulat:
         h = ke_desimal_harga(harga)
         if h <= 0:
             raise ValueError(f"harga harus > 0 untuk dibulatkan (nilai: {h})")
         if not self.fraksi_berlaku(tanggal):
             return HargaBulat(_kelipatan(h, _SATU, arah), False)
-        r = h
-        for _ in range(_MAKS_LANGKAH):
-            r = _kelipatan(r, Decimal(self._baris_fraksi(r).fraksi), arah)
-            if r > 0 and self.harga_valid(r, tanggal):
-                return HargaBulat(r, True)
-            if r <= 0:  # di bawah harga terkecil: naik ke kelipatan pertama baris pertama
-                r = Decimal(self._fraksi.tabel[0].fraksi)
-                arah = ROUND_CEILING
-        raise ValueError(f"tabel fraksi tidak menghasilkan harga valid di sekitar {h}")
+        return HargaBulat(self._valid_bawah(h) if arah == ROUND_FLOOR else self._valid_atas(h), True)
 
     def bulat_bawah(self, harga: Decimal | float, tanggal: date) -> HargaBulat:
-        """Ke bawah (untuk harga_maks dan target)."""
+        """Ke bawah (untuk harga_maks dan target). 0 bila tidak ada harga valid > 0 ≤ harga (pemanggil
+        memperlakukannya sebagai level tidak sah, mis. cek STOP gagal)."""
         return self._bulat(harga, tanggal, ROUND_FLOOR)
 
     def bulat_atas(self, harga: Decimal | float, tanggal: date) -> HargaBulat:

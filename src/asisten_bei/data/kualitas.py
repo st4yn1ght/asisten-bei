@@ -504,8 +504,10 @@ def alasan_data_asof(
 ) -> str | None:
     """Alasan data saham tidak dinilai pada d (§8.5, §11 syarat 3 & 5); None = lolos.
 
-    Urutan: DATA_BASI → BAR_HILANG → ANOMALI → SPLIT_BELUM_DISESUAIKAN → RIWAYAT_PENDEK /
+    Urutan: DATA_BASI → BAR_HILANG → SPLIT_BELUM_DISESUAIKAN → ANOMALI → RIWAYAT_PENDEK /
     RIWAYAT_CSV_PENDEK → KEMUNGKINAN_SUSPENSI. Indeks: hanya DATA_BASI, BAR_HILANG, ANOMALI.
+    SPLIT_BELUM_DISESUAIKAN didahulukan karena lompatan pada tanggal split juga tampak sebagai anomali
+    (§8.4); pesannya (unduh ulang penuh) lebih tepat daripada anjuran `anomali_ok.csv`.
     Batas: bar_hilang ≤ maks lolos; jumlah_bar_valid ≥ min_bar_riwayat lolos; volume_nol ≤ maks lolos.
     `baris` None (tidak ada baris tanda as-of d) diperlakukan sebagai tanpa bar valid → DATA_BASI.
     """
@@ -513,12 +515,12 @@ def alasan_data_asof(
         return "DATA_BASI"
     if _int(baris.get("bar_hilang", 0)) > cfg.data.validasi.maks_bar_hilang:
         return "BAR_HILANG"
+    if not adalah_indeks and _bool(baris.get("split_belum_disesuaikan", False)):
+        return "SPLIT_BELUM_DISESUAIKAN"
     if _bool(baris.get("anomali_aktif", False)):
         return "ANOMALI"
     if adalah_indeks:
         return None
-    if _bool(baris.get("split_belum_disesuaikan", False)):
-        return "SPLIT_BELUM_DISESUAIKAN"
     if _int(baris.get("jumlah_bar_valid", 0)) < cfg.universe.min_bar_riwayat:
         return "RIWAYAT_CSV_PENDEK" if csv_pengganti_penuh else "RIWAYAT_PENDEK"
     if _int(baris.get("volume_nol", 0)) > cfg.likuiditas.maks_hari_volume_nol:

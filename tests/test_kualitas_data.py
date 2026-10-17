@@ -556,8 +556,9 @@ def test_split_belum_disesuaikan_terdeteksi_sejak_tanggal_split(kal):
     mentah = buat_bar(d, [5000] * 5 + [1000] * 3)  # harga sebelum split belum dibagi 5
     _, t = proses(mentah, cfg, kal, kode="UJISPLIT", split=split)
     assert t["split_belum_disesuaikan"].tolist() == [False] * 5 + [True] * 3
-    # lompatan −80% juga anomali; urutan alasan: ANOMALI sebelum SPLIT_BELUM_DISESUAIKAN
-    assert alasan_data_asof(t.iloc[-1], cfg, False) == "ANOMALI"
+    # lompatan −80% juga anomali, tetapi SPLIT_BELUM_DISESUAIKAN didahulukan (§8.4)
+    assert bool(t.iloc[-1]["anomali_aktif"])
+    assert alasan_data_asof(t.iloc[-1], cfg, False) == "SPLIT_BELUM_DISESUAIKAN"
     _, t_ok = proses(mentah, cfg, kal, kode="UJISPLIT", split=split, ok={("UJISPLIT", d[5])})
     assert alasan_data_asof(t_ok.iloc[-1], cfg, False) == "SPLIT_BELUM_DISESUAIKAN"
     assert alasan_data_asof(t_ok.iloc[4], cfg, False) is None  # sebelum split: data nominal konsisten
@@ -623,7 +624,8 @@ def _baris(**ubah) -> pd.Series:
         (dict(bar_hilang=2, anomali_aktif=True, split_belum_disesuaikan=True, jumlah_bar_valid=0,
               volume_nol=9), False, "BAR_HILANG"),
         (dict(anomali_aktif=True, split_belum_disesuaikan=True, jumlah_bar_valid=0, volume_nol=9),
-         False, "ANOMALI"),
+         False, "SPLIT_BELUM_DISESUAIKAN"),  # didahulukan dari ANOMALI (§8.4)
+        (dict(anomali_aktif=True, jumlah_bar_valid=0, volume_nol=9), False, "ANOMALI"),
         (dict(split_belum_disesuaikan=True, jumlah_bar_valid=3, volume_nol=9), False, "SPLIT_BELUM_DISESUAIKAN"),
         (dict(jumlah_bar_valid=3, volume_nol=9), False, "RIWAYAT_PENDEK"),
         (dict(jumlah_bar_valid=3, volume_nol=9), True, "RIWAYAT_CSV_PENDEK"),

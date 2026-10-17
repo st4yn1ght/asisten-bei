@@ -57,7 +57,7 @@ _POLA_JAM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 def _cek_jam(v: str | None) -> str | None:
     if v is None:
         return None
-    if not isinstance(v, str) or not _POLA_JAM.match(v):
+    if not isinstance(v, str) or not _POLA_JAM.fullmatch(v):
         raise ValueError('format jam harus "HH:MM" (24 jam)')
     return v
 

@@ -13,6 +13,8 @@ atas); semua hitungan memakai `Decimal`. Dengan L = `pasar.lot_lembar`, P = harg
     lot_likuid  = floor(maks_pct_order_dari_nilai_harian/100 × RataNilai / (P × L))
     lot         = min(semuanya)
 
+Stop wajib < harga_maks (§14.1); pemanggil yang melanggar adalah kesalahan program → ValueError.
+
 `risiko(n)` dan `biaya_beli(n)` naik monoton terhadap n (selisih antar-n ≥ L·(P − S(1−slip)) > 0,
 ditambah fee yang tidak turun), sehingga n terbesar dicari dengan pencarian biner di atas batas atas
 tanpa fee — tepat juga saat ada fee minimum atau pembulatan fee.
@@ -69,7 +71,7 @@ class HasilSizing:
     lot_alokasi: int
     lot_kas: int
     lot_likuid: int
-    pembatas: Pembatas | None  # batas yang menentukan `lot` (urutan cek: risiko, alokasi, likuid, kas); None bila lot ≥ 1 tak terbatas oleh satu pun yang 0
+    pembatas: Pembatas  # batas pertama (urutan §13.2: risiko, alokasi, likuid, kas) yang nilainya = `lot`
     harga_maks: Decimal
     stop: Decimal
     risiko_lembar: Decimal  # tanpa fee minimum
@@ -106,9 +108,9 @@ def hitung_sizing(
     P, S = _d(harga_maks), _d(stop)
     if P <= 0 or S <= 0:
         raise ValueError(f"harga_maks dan stop harus > 0 (P={P}, S={S})")
-    s_slip = biaya.slip(cfg)
-    if not P > S * (1 - s_slip):
+    if not S < P:
         raise ValueError(f"stop harus di bawah harga_maks (P={P}, S={S})")
+    s_slip = biaya.slip(cfg)
     L = int(cfg.pasar.lot_lembar)
     anggaran, alokasi, kas = _d(anggaran_risiko), _d(alokasi_maks), _d(kas_tersedia)
 
@@ -132,11 +134,10 @@ def hitung_sizing(
         lot_risiko, di_atas = 1, True
 
     lot = min(lot_risiko, lot_alokasi, lot_likuid, lot_kas)
-    pembatas: Pembatas | None = None
-    for nama, nilai in (("risiko", lot_risiko), ("alokasi", lot_alokasi), ("likuid", lot_likuid), ("kas", lot_kas)):
-        if nilai == lot:
-            pembatas = nama  # type: ignore[assignment]
-            break
+    urutan: tuple[tuple[Pembatas, int], ...] = (
+        ("risiko", lot_risiko), ("alokasi", lot_alokasi), ("likuid", lot_likuid), ("kas", lot_kas)
+    )
+    pembatas = next(nama for nama, nilai in urutan if nilai == lot)
 
     lembar = lot * L
     nilai_idr = Decimal(lembar) * P

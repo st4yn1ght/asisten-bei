@@ -32,7 +32,7 @@ def cfg_uji(ubah: dict | None = None) -> Config:
         simpul = data
         for k in jalur:
             simpul = simpul[k]
-        simpul[akhir] = nilai
+        simpul[akhir] = copy.deepcopy(nilai)  # nilai dict/list pemanggil tidak ikut berubah
     return validasi_dict(data)
 
 
@@ -100,7 +100,11 @@ def pasar(
     akhir: date,
     *,
     anomali_ok: set[tuple[str, date]] | None = None,
+    split: dict[str, pd.Series] | None = None,
 ) -> DataPasar:
-    ds = {k: data_saham(k, df, cfg, akhir, anomali_ok=anomali_ok) for k, df in saham.items()}
+    split = split or {}
+    ds = {
+        k: data_saham(k, df, cfg, akhir, anomali_ok=anomali_ok, split=split.get(k)) for k, df in saham.items()
+    }
     ih = data_saham("IHSG", ihsg, cfg, akhir, indeks=True, anomali_ok=anomali_ok) if ihsg is not None else None
     return DataPasar(ds, ih, KAL, cfg)

@@ -16,8 +16,8 @@ from decimal import Decimal
 import pytest
 
 from asisten_bei.aturan_bei import AturanBEI, HargaBulat, ke_desimal_harga
-from asisten_bei.config import ConfigTidakValid
-from bantu_pasar import cfg_uji
+from asisten_bei.config import ConfigTidakValid, baca_yaml, validasi_dict
+from bantu_pasar import AKAR_PROYEK, cfg_uji
 
 LABEL_FIKTIF = "FIKTIF – KHUSUS UJI"
 SUMBER_FIKTIF = f"{LABEL_FIKTIF} (bukan aturan BEI, jangan dipakai)"
@@ -399,16 +399,6 @@ def test_tabel_tidak_sejajar_tetap_aman_arah_dan_valid():
     assert bei.bulat_atas(Decimal("99.5"), SESUDAH).nilai == Decimal(105)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason=(
-        "BUG: tabel fraksi yang batas rentangnya bukan kelipatan fraksi lolos validasi config, tetapi "
-        "bulat_bawah(101) memberi 96 padahal 99 valid (kelipatan 3 di rentang [0,100)); §4.1 'dibulatkan "
-        "ke bawah ke fraksi yang berlaku' = harga valid terbesar ≤ harga. Perbaikan: tolak tabel seperti "
-        "ini di config.py atau cari harga valid terdekat."
-    ),
-)
 def test_tabel_tidak_sejajar_ditolak_atau_dibulatkan_ke_harga_valid_terdekat():
     try:
         bei = _bei(_fraksi(tabel=TABEL_TIDAK_SEJAJAR_FIKTIF))
@@ -416,6 +406,32 @@ def test_tabel_tidak_sejajar_ditolak_atau_dibulatkan_ke_harga_valid_terdekat():
         return  # perbaikan lewat validasi config juga memenuhi
     # Harga valid ≤ 101: …, 96, 99 (rentang fraksi 3); 100 dan 101 tidak valid (rentang fraksi 7).
     assert bei.bulat_bawah(101, SESUDAH).nilai == Decimal(99)
+
+
+TABEL_TIDAK_SEJAJAR_ATAS_FIKTIF = [  # FIKTIF – KHUSUS UJI: batas 100 bukan kelipatan fraksi 30
+    {"harga_min": 0, "harga_maks": 100, "fraksi": 30},
+    {"harga_min": 100, "harga_maks": None, "fraksi": 7},
+]
+
+
+def test_tabel_tidak_sejajar_ke_atas_tetap_aman_arah_dan_valid():
+    # Sisi yang sudah benar: hasil ke atas selalu ≥ harga dan valid; ⌈91 / 30⌉ × 30 = 120 jatuh di
+    # rentang fraksi 7 dan tidak valid (120 = 17 × 7 + 1) → ⌈120 / 7⌉ × 7 = 126.
+    bei = _bei(_fraksi(tabel=TABEL_TIDAK_SEJAJAR_ATAS_FIKTIF))
+    for k in range(100, 700):
+        h = Decimal(k) * Decimal("0.3")  # 30,0 … 209,7 (≥ harga valid terkecil 30)
+        a = bei.bulat_atas(h, SESUDAH)
+        assert a.fraksi_dipakai and a.nilai >= h and bei.harga_valid(a.nilai, SESUDAH), h
+    assert bei.bulat_atas(91, SESUDAH).nilai >= Decimal(105)
+
+
+def test_tabel_tidak_sejajar_ke_atas_ditolak_atau_ke_harga_valid_terdekat():
+    try:
+        bei = _bei(_fraksi(tabel=TABEL_TIDAK_SEJAJAR_ATAS_FIKTIF))
+    except ConfigTidakValid:
+        return  # perbaikan lewat validasi config juga memenuhi
+    # Harga valid ≥ 91: 100…104 tidak valid (bukan kelipatan 7), 105 = 15 × 7 valid.
+    assert bei.bulat_atas(91, SESUDAH).nilai == Decimal(105)
 
 
 # =====================================================================================================
@@ -429,6 +445,7 @@ def _pesan_error(ubah: dict) -> str:
     return "\n".join(e.value.pesan)
 
 
+# Tabel rusak FIKTIF – KHUSUS UJI (variasi tabel fiktif di atas); nilai kedua = kata kunci pesan error.
 _TABEL_FRAKSI_RUSAK = {
     "tumpang_tindih": (
         [{"harga_min": 0, "harga_maks": 130, "fraksi": 1}, {"harga_min": 120, "harga_maks": 1000, "fraksi": 4},
@@ -479,6 +496,21 @@ def test_fraksi_harus_positif(fraksi):
     assert "pasar.fraksi_harga.tabel.0.fraksi" in pesan
 
 
+def test_validasi_dict_langsung_menolak_tabel_rusak():
+    # Jalur yang sama dengan `muat_config`: dict YAML → validasi_dict → ConfigTidakValid.
+    data = baca_yaml(AKAR_PROYEK / "config.yaml")
+    data["pasar"]["fraksi_harga"].update(
+        terverifikasi=True, sumber=SUMBER_FIKTIF, berlaku_mulai=BERLAKU,
+        tabel=copy.deepcopy(_TABEL_FRAKSI_RUSAK["berlubang"][0]),
+    )
+    with pytest.raises(ConfigTidakValid) as e:
+        validasi_dict(copy.deepcopy(data))
+    assert any("pasar.fraksi_harga" in p and "berlubang" in p for p in e.value.pesan)
+    # Sisi lain: dict yang sama dengan tabel fiktif bersambung diterima.
+    data["pasar"]["fraksi_harga"]["tabel"] = copy.deepcopy(TABEL_FRAKSI_FIKTIF)
+    assert validasi_dict(data).pasar.fraksi_harga.terverifikasi is True
+
+
 def test_tabel_fraksi_fiktif_bersambung_diterima():
     # Kontrol positif: tabel bersambung (harga_maks[i] == harga_min[i+1]) lolos, terverifikasi atau tidak.
     for terverifikasi in (True, False):
@@ -524,8 +556,24 @@ def test_tabel_ara_arb_rusak_ditolak(sisi, nama):
 def test_auto_reject_terverifikasi_tidak_lengkap_ditolak(ubah, kata):
     pesan = _pesan_error(_ar(**ubah))
     assert "pasar.auto_reject" in pesan and kata in pesan
-    # Sisi lain: isian yang sama dengan terverifikasi false diterima (belum dimodelkan).
-    cfg_uji(_ar(terverifikasi=False, **ubah))
+    # Sisi lain: isian yang sama dengan terverifikasi false diterima, tetapi ARA/ARB tidak dimodelkan.
+    bei = AturanBEI(cfg_uji(_ar(terverifikasi=False, **ubah)))
+    assert bei.auto_reject_berlaku(SESUDAH) is False
+    assert bei.batas_ara(1003, SESUDAH) is None and bei.batas_arb(1003, SESUDAH) is None
+
+
+def test_harga_acuan_tidak_didukung_tidak_dimodelkan_walau_validasi_dilewati():
+    # Pengaman kedua di AturanBEI: config tervalidasi tidak bisa memuat ini, tetapi objek yang disalin
+    # tanpa validasi (model_copy) pun tidak boleh membuat ARA/ARB dimodelkan dengan acuan lain.
+    cfg = cfg_uji(_ar())
+    ar = cfg.pasar.auto_reject.model_copy(update={"harga_acuan": "open_hari_ini"})
+    cfg_lain = cfg.model_copy(update={"pasar": cfg.pasar.model_copy(update={"auto_reject": ar})})
+    bei = AturanBEI(cfg_lain)
+    assert bei.auto_reject_berlaku(SESUDAH) is False
+    assert bei.batas_ara(1003, SESUDAH) is None and bei.batas_arb(1003, SESUDAH) is None
+    assert bei.terkunci_arb(873, 873, 873, 873, 1003, SESUDAH) is False
+    # Kontrol: config asal (close_kemarin) memodelkan batas yang sama.
+    assert AturanBEI(cfg).batas_arb(1003, SESUDAH) == Decimal(873)
 
 
 @pytest.mark.parametrize("pct", [0, -1, 101])
@@ -587,11 +635,47 @@ def test_batas_ara_arb_satu_baris_dengan_fraksi_fiktif(acuan, ara, arb):
         (999, 1218, 830),  # 999 × 1,22 = 1.218,78 → 1.218; 999 × 0,83 = 829,17 → 830
         (1000, 1090, 940),  # 1.000 × 1,09 = 1.090; 1.000 × 0,94 = 940
         (1001, 1091, 941),  # 1.001 × 1,09 = 1.091,09 → 1.091; 1.001 × 0,94 = 940,94 → 941
+        (999.9999999999999, 1090, 940),  # derau float → acuan 1.000 → baris ketiga, bukan kedua
     ],
 )
 def test_batas_ara_arb_multi_baris(acuan, ara, arb):
     assert BEI_AR_MULTI.batas_ara(acuan, SESUDAH) == Decimal(ara)
     assert BEI_AR_MULTI.batas_arb(acuan, SESUDAH) == Decimal(arb)
+    # Multi-baris juga hanya dimodelkan mulai berlaku_mulai.
+    assert BEI_AR_MULTI.batas_ara(acuan, BERLAKU) == Decimal(ara)
+    assert BEI_AR_MULTI.batas_ara(acuan, SEBELUM) is None
+    assert BEI_AR_MULTI.batas_arb(acuan, SEBELUM) is None
+
+
+BEI_AR_MULTI_FRAKSI = _bei(_fraksi(), _ar(ara=ARA_MULTI_FIKTIF, arb=ARB_MULTI_FIKTIF))
+
+
+@pytest.mark.parametrize(
+    ("acuan", "ara", "arb"),
+    [
+        # Persen dipilih menurut rentang harga ACUAN; fraksi menurut rentang harga HASIL.
+        (119, 176, 72),  # 178,5 → fraksi 4 → ⌊44,625⌋ × 4 = 176; 71,4 → fraksi 1 → 72
+        (120, 144, 100),  # 146,4 → fraksi 4 → ⌊36,6⌋ × 4 = 144; 99,6 → fraksi 1 → 100
+        (999, 1210, 832),  # 1.218,78 → fraksi 10 → 1.210; 829,17 → fraksi 4 → ⌈207,29⌉ × 4 = 832
+        (1000, 1090, 940),  # 1.090 dan 940 sudah kelipatan fraksinya
+    ],
+)
+def test_batas_ara_arb_multi_baris_dengan_fraksi_fiktif(acuan, ara, arb):
+    assert BEI_AR_MULTI_FRAKSI.batas_ara(acuan, SESUDAH) == Decimal(ara)
+    assert BEI_AR_MULTI_FRAKSI.batas_arb(acuan, SESUDAH) == Decimal(arb)
+
+
+def test_batas_pct_pecahan_dari_yaml_tanpa_derau_float():
+    # FIKTIF – KHUSUS UJI: ARA/ARB 0,7 % sebagai float YAML. 1.000 × 1,007 = 1.007 dan 1.000 × 0,993 = 993
+    # tepat. Bila 0,7 diubah ke Decimal biner (0,6999…96), ARA menjadi ⌊1.006,99…⌋ = 1.006 dan ARB
+    # ⌈993,00…04⌉ = 994.
+    tabel = [{"harga_min": 0, "harga_maks": None, "batas_pct": 0.7}]
+    bei = _bei(_ar(ara=tabel, arb=tabel))
+    assert bei.batas_ara(1000, SESUDAH) == Decimal(1007)
+    assert bei.batas_arb(1000, SESUDAH) == Decimal(993)
+    # Sisi lain: 0,7 % dari 1.001 = 7,007 → ARA ⌊1.008,007⌋ = 1.008, ARB ⌈993,993⌉ = 994.
+    assert bei.batas_ara(1001, SESUDAH) == Decimal(1008)
+    assert bei.batas_arb(1001, SESUDAH) == Decimal(994)
 
 
 def test_batas_ara_arb_none_bila_tidak_dimodelkan():

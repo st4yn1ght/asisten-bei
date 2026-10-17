@@ -154,7 +154,7 @@ Ringkasan bagian ini juga wajib dimuat di README.
 | Aritmetika uang | Sizing, fee, dan P&L dihitung dengan `decimal.Decimal` dari nilai config, bukan float. Fee tidak dibulatkan kecuali `biaya.pembulatan_fee` diisi. |
 | Tampilan Rupiah | 2 desimal dengan `ROUND_HALF_UP` (mis. 66.841,625 → 66.841,63). Hanya untuk tampilan; perhitungan memakai presisi penuh. |
 | Pembulatan lot | Selalu ke bawah (`floor`). |
-| Pembulatan harga | Arahnya selalu menjaga risiko ≤ anggaran: `harga_maks` dan target ke **bawah**; stop dan trailing ke **atas** (lebih dekat ke harga). Jika fraksi terverifikasi dan tanggal ≥ `berlaku_mulai`, pembulatan dilakukan ke fraksi yang berlaku. Jika belum, ke rupiah bulat, dan laporan meminta Anda membulatkan ke fraksi valid dengan arah yang sama. Sizing, `STOP_TERLALU_JAUH`, dan skor dihitung **setelah** pembulatan. |
+| Pembulatan harga | Arahnya selalu menjaga risiko ≤ anggaran: `harga_maks` dan target ke **bawah**; stop dan trailing ke **atas** (lebih dekat ke harga). Jika fraksi terverifikasi dan tanggal ≥ `berlaku_mulai`, pembulatan dilakukan ke **harga valid terdekat** pada arah itu (harga valid = kelipatan fraksi rentang tempat harga itu berada; bila perlu melintasi batas rentang). Jika belum, ke rupiah bulat, dan laporan meminta Anda membulatkan ke fraksi valid dengan arah yang sama. Sizing, `STOP_TERLALU_JAUH`, dan skor dihitung **setelah** pembulatan. |
 | Transaksi | Satu siklus beli lalu jual. Kata "trade" tidak dipakai dalam teks laporan. |
 | Nama berkas | `portfolio.csv` tetap memakai ejaan Inggris. "Portofolio" adalah istilah dalam teks. |
 
@@ -804,7 +804,8 @@ class HasilAmbil:
   - lembar tersesuaikan = lembar nominal × `F(d)`.
 - **Pemeriksaan split yang belum disesuaikan sumber.** Untuk setiap split tercatat dengan rasio `r` pada tanggal `s`, hitung `q = close_s / close_{s−1}`.
   - Jika `|ln q − ln(1/r)| < |ln q|` (q lebih dekat ke 1/r daripada ke 1), seri dianggap belum disesuaikan dan diberi status `SPLIT_BELUM_DISESUAIKAN`.
-  - Saham itu dikeluarkan dan dilaporkan. Setiap run berikutnya mengunduh ulang penuh simbol tersebut sampai lolos.
+  - Saham itu dikeluarkan dan dilaporkan sejak bar valid pertama ≥ `s` (as-of). Status ini didahulukan dari `ANOMALI`, karena lompatan harga pada `s` juga tampak sebagai anomali. Setiap run berikutnya mengunduh ulang penuh simbol tersebut sampai lolos.
+  - Split seperti ini **tidak ikut** dalam `F(d)`. Harga cache sebelum `s` belum pernah dibagi rasionya, jadi harga itu sudah nominal. Jika split ini ikut, backtest pada `d < s` akan memakai harga nominal `r` kali terlalu besar.
 - **Pemakaian:**
   - Semua level harga (harga_maks, stop, target, trailing) dihitung di ruang tersesuaikan, dikonversi ke nominal (× `F(d)`) untuk pembulatan, lalu dikonversi kembali.
   - Semua sizing (§14.1) di backtest memakai harga nominal.
@@ -897,7 +898,7 @@ Indikator boleh dihitung tervektor atas seluruh seri demi kecepatan, dengan syar
 
 ## 9. Definisi indikator
 
-Semua indikator dihitung atas **bar valid** saham (§4.1). Jika bar valid belum cukup, nilainya `NaN`. Aturan yang bergantung pada nilai `NaN` dianggap **tidak terpenuhi**. Jika `ATR_t ≤ 0` atau `NaN`, setiap aturan yang membagi dengan ATR dianggap tidak terpenuhi.
+Semua indikator dihitung atas **bar valid** saham (§4.1). Jika bar valid belum cukup, nilainya `NaN`. Aturan yang bergantung pada nilai `NaN` dianggap **tidak terpenuhi**. Jika `ATR_t ≤ 0` atau `NaN`, setiap aturan yang memakai ATR (membagi atau mengalikan, mis. PB5, BO5, MR3) dianggap tidak terpenuhi.
 
 | Nama | Definisi |
 |---|---|
@@ -977,6 +978,8 @@ Saham yang tidak eligible ditampilkan di bagian "Dikeluarkan" pada laporan beser
 Semua nilai dievaluasi pada close `t` atas saham eligible. ATR = `ATR_t` (§9). Sinyal pada `t` → order beli di pembukaan `t+1` (§14).
 
 Angka di tabel aturan adalah **nilai default**. Implementasi wajib membaca kunci config yang tercantum di baris "Kunci" setiap strategi, dan uji T-CFG memastikan setiap kunci benar-benar berpengaruh.
+
+**Pemeriksaan stop (`STOP`).** Setelah semua syarat lolos, level dikonversi ke nominal dan dibulatkan (§4.1, §8.4). Jika stop tidak terdefinisi (`NaN`, ATR tidak sah), stop ≤ 0, atau stop ≥ `harga_maks`, tidak ada sinyal. Evaluasi mencatat cek `STOP` yang gagal beserta nilainya.
 
 **Stop waktu** "pada close hari ke-N" berarti pada close hari ke-N, atau pada close bar valid pertama sesudahnya jika hari ke-N tidak punya bar valid.
 
@@ -1058,7 +1061,7 @@ MR menahan posisi sangat singkat, sehingga fee 0,40% pulang-pergi plus slippage 
 ### 12.4 ACAK — pembanding acak (khusus backtest)
 
 - **Sinyal:** untuk setiap saham eligible pada `t`, hitung `u = int.from_bytes(sha256(f"{seed}|{t:%Y-%m-%d}|{kode}".encode()).digest()[:8], "big") / 2**64`. Sinyal muncul jika `u < peluang_sinyal_pct/100`. Fungsi `hash()` bawaan Python dilarang (tidak deterministik antar proses).
-- **Stop:** `close − stop_atr × ATR`. **Target:** `target_r` R. **Stop waktu:** `stop_waktu_hari`. **`K_sinyal` = 0,5.**
+- **Stop:** `close − stop_atr × ATR`. Jika ATR tidak sah, berlaku pemeriksaan `STOP` (§12). **Target:** `target_r` R. **Stop waktu:** `stop_waktu_hari`. **`K_sinyal` = 0,5.**
 - **Tujuan:** memeriksa mesin backtest. Setelah fee dan slippage, PF_R-nya harus berada di sekitar atau di bawah 1.
 - Tidak pernah muncul di laporan harian, jurnal, atau run gabungan, dan tidak pernah dinilai gerbang.
 
@@ -1149,6 +1152,8 @@ lot          = min(lot_risiko, lot_alokasi, lot_kas, lot_likuid)
 
 - Jika `m = 0`, `lot_risiko = floor(anggaran_risiko / (L × risiko_lembar))`, dengan `risiko_lembar = P(1+fb) − S(1−slip)(1−fj)`. Jika `m > 0`, cari menurun dari nilai tanpa minimum.
 - Semua dihitung dengan `Decimal`.
+- Jika `biaya.pembulatan_fee` diisi, yang dibulatkan adalah fee akhir, yaitu `max(f·nilai, m)`.
+- `harga_maks` wajib > stop. Pemanggil dengan stop ≥ `harga_maks` adalah kesalahan program, bukan kasus 0 lot.
 - **Jaminan:** jika open `t+1` ≤ `harga_maks`, kerugian saat stop tersentuh dengan slippage sesuai asumsi ≤ anggaran. Kerugian bisa lebih besar hanya bila harga gap turun melewati stop atau slippage aktual melebihi asumsi (§16.10).
 
 ### 14.2 Contoh kerja (wajib menjadi uji T-SZ)

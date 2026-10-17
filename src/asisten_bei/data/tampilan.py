@@ -53,6 +53,8 @@ class DataSaham:
       dan hasilnya identik dengan perhitungan ulang dari data ≤ t (T-LA1a). Ditegakkan `DataPasar`.
     - `alasan_seri`: alasan tingkat seri (mis. GAGAL_AMBIL, RIWAYAT_CSV_PENDEK) yang berlaku untuk
       semua tanggal dan mengalahkan alasan as-of.
+    - `split_faktor`: split yang dipakai `F(d)` = `split` tanpa split yang belum disesuaikan sumber
+      (§8.4: harga cache sebelum split itu sudah nominal). None → `split` apa adanya.
     """
 
     kode: str
@@ -68,6 +70,7 @@ class DataSaham:
     tanda: pd.DataFrame
     alasan_seri: str | None = None
     csv_pengganti_penuh: bool = False
+    split_faktor: pd.Series | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +330,8 @@ class TampilanSeri:
             d = self._as_of
         else:
             self._cek_tanggal(d)
-        return _faktor_split(self._ds.split, d)
+        split = self._ds.split if self._ds.split_faktor is None else self._ds.split_faktor
+        return _faktor_split(split, d)
 
     def nominal(self, harga_adj: Any, d: date | pd.Timestamp | str | None = None) -> Any:
         """Harga nominal pada d = harga tersesuaikan × F(d). Decimal masuk → Decimal keluar."""
@@ -464,8 +468,13 @@ def bangun_data_saham(
     from .. import indikator as ind
     from . import kualitas
 
+    from .split import split_belum_disesuaikan
+
     seri = kualitas.validasi_bar(mentah, split, kode, adalah_indeks, kalender)
     hitung = ind.hitung_indikator_indeks if adalah_indeks else ind.hitung_indikator
+    # §8.4: split yang belum disesuaikan sumber tidak tertanam di harga cache → tidak ikut F(d).
+    bermasalah = [] if adalah_indeks or len(seri.split) == 0 else split_belum_disesuaikan(seri.valid, seri.split)
+    split_faktor = seri.split.drop(pd.DatetimeIndex([ke_ts(s) for s in bermasalah]).as_unit("ns")) if bermasalah else None
     return DataSaham(
         kode=kode,
         adalah_indeks=adalah_indeks,
@@ -480,4 +489,5 @@ def bangun_data_saham(
         tanda=kualitas.hitung_tanda_asof(seri, kalender, cfg, anomali_ok, akhir),
         alasan_seri=alasan_seri,
         csv_pengganti_penuh=csv_pengganti_penuh,
+        split_faktor=split_faktor,
     )

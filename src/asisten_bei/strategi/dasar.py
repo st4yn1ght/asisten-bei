@@ -92,9 +92,16 @@ class EvaluasiStrategi:
 
 
 def nilai_baris(baris, kolom: str) -> float:
-    """Nilai float dari baris indikator; NaN bila baris None atau kolom tidak ada."""
-    if baris is None or kolom not in baris.index:
+    """Nilai float dari baris indikator; NaN bila baris None. Kolom yang tidak ada adalah kesalahan
+    program (mis. strategi memakai config berbeda dari config pembangun `DataPasar`, sehingga periode
+    indikatornya tidak dihitung) → KeyError, sama seperti `DataView.sebelum`; bukan aturan yang diam-diam
+    tidak terpenuhi."""
+    if baris is None:
         return math.nan
+    if kolom not in baris.index:
+        raise KeyError(
+            f"kolom indikator {kolom!r} tidak ada; strategi wajib memakai config yang sama dengan DataPasar"
+        )
     return float(baris[kolom])
 
 
@@ -152,7 +159,9 @@ class Strategi(ABC):
         """Bangun `Sinyal` dari nilai tersesuaikan (semua cek aturan sudah lolos).
 
         - harga_maks = bulat_bawah((close + gap_maks_atr × ATR) × F), stop = bulat_atas(stop × F).
-        - Bila stop ≥ harga_maks setelah pembulatan (ATR sangat kecil), aturan "STOP" gagal → tanpa sinyal.
+        - Bila close/ATR/stop tidak terdefinisi (NaN, ATR ≤ 0), stop ≤ 0, atau stop ≥ harga_maks setelah
+          pembulatan (mis. ATR sangat kecil), aturan "STOP" gagal → tanpa sinyal (§12). Strategi boleh
+          memeriksa lebih dulu dengan uraian yang lebih rinci; pemeriksaan ini jaring pengaman bersama.
         - Bila `maks_jarak_stop_atr` diisi (PB): (harga_maks − stop)/ATR_nominal > batas → sinyal
           `valid=False` (`STOP_TERLALU_JAUH`), tetap dikembalikan agar dicatat di jurnal.
         """
@@ -161,6 +170,17 @@ class Strategi(ABC):
         bei = AturanBEI(self.cfg)
         f = float(dv.faktor_split(kode))
         gap = float(self.cfg.entry.gap_maks_atr)
+        nilai = (close, atr, stop_tersesuaikan, f)
+        if any(math.isnan(x) or math.isinf(x) for x in nilai) or not atr > 0 or not stop_tersesuaikan * f > 0:
+            cek.append(
+                CekAturan(
+                    "STOP",
+                    f"stop {a(stop_tersesuaikan * f)} tidak dapat dipakai (ATR {a(atr * f)}; wajib ATR > 0 "
+                    "dan stop > 0)",
+                    False,
+                )
+            )
+            return self.tanpa_sinyal(kode, cek)
         maks = bei.bulat_bawah((close + gap * atr) * f, t)
         stop = bei.bulat_atas(stop_tersesuaikan * f, t)
         atr_nom = ke_desimal_harga(atr * f)
@@ -175,7 +195,7 @@ class Strategi(ABC):
             if jarak_atr > Decimal(repr(float(maks_jarak_stop_atr))):
                 valid = False
                 alasan = (
-                    f"jarak stop {a(float(jarak_atr))} ATR > {a(float(maks_jarak_stop_atr))} ATR "
+                    f"jarak stop {a(float(jarak_atr), 3)} ATR > {a(float(maks_jarak_stop_atr), 3)} ATR "
                     f"(harga maks {a(float(maks.nilai), 0)}, stop {a(float(stop.nilai), 0)})"
                 )
         sinyal = Sinyal(
