@@ -106,19 +106,14 @@ class BarHari:
 
 def bar_hari(dv: "DataView", kode: str) -> BarHari:
     """Bar `kode` pada `dv.as_of` (mentah, dengan tanda bar §8.5) dan close valid sebelumnya."""
-    import pandas as pd
-
     d = dv.as_of
-    ts = pd.Timestamp(d)
-    f = _f(dv.faktor_split(kode))
-    mentah = dv.mentah(kode)
-    valid = dv.valid(kode)
-    ada = len(mentah) > 0 and mentah.index[-1] == ts
-    sebelum = valid[valid.index < ts]
-    acuan = _d(float(sebelum["close"].iloc[-1])) if len(sebelum) else None
-    if not ada:
+    seri = dv.seri(kode)
+    f = _f(seri.faktor_split())
+    c = seri.close_valid_sebelum()
+    acuan = None if c is None else _d(c)
+    r = seri.bar_mentah()
+    if r is None:
         return BarHari(kode, d, False, False, None, None, None, None, f, acuan)
-    r = mentah.iloc[-1]
     ok = str(r.get("tanda_bar", "")) == ""
 
     def angka(k: str) -> Decimal | None:

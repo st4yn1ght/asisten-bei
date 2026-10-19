@@ -25,7 +25,7 @@ import pandas as pd
 
 from ..indikator import hhv_sejak as _hhv_sejak
 from .provider import ke_ts
-from .split import faktor_split as _faktor_split
+from .split import _tabel_faktor
 from .split import harga_nominal as _harga_nominal
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -103,24 +103,32 @@ class _Kunci:
     indikator: np.ndarray
     tanda: np.ndarray
     split: np.ndarray
-    # Kolom indikator numerik sebagai array float64 baca-saja, diisi saat pertama dipakai `sebelum`
-    # (akses per posisi lewat pandas jauh lebih lambat; isi kolom tidak berubah selama run).
-    _kolom: dict[str, np.ndarray | None] = field(default_factory=dict, compare=False, repr=False)
+    # Kolom numerik sebagai array float64 baca-saja, kunci (bingkai, kolom), diisi saat pertama dipakai
+    # (akses per posisi lewat pandas jauh lebih lambat; isi bingkai tidak berubah selama run).
+    _kolom: dict[tuple[str, str], np.ndarray | None] = field(default_factory=dict, compare=False, repr=False)
+    # Tabel F(d) (tanggal split, hasil kali sufiks) dari `split_faktor`/`split`, dihitung sekali.
+    _faktor: list = field(default_factory=lambda: [None], compare=False, repr=False)
     # Baris indikator terakhir yang diminta `baris` ([posisi, Series]): eligibilitas dan semua strategi
     # membaca baris yang sama pada hari yang sama. Pemanggil hanya membaca baris itu.
     _baris: list = field(default_factory=lambda: [-1, None], compare=False, repr=False)
 
-    def kolom_indikator(self, ds: DataSaham, kolom: str) -> np.ndarray | None:
-        """Array kolom indikator, atau None bila kolom tidak bisa diubah ke float64 apa adanya
-        (pemanggil memakai jalur pandas). KeyError bila kolom tidak ada."""
-        if kolom in self._kolom:
-            return self._kolom[kolom]
-        seri = ds.indikator[kolom]
+    def kolom(self, ds: DataSaham, bingkai: str, kolom: str) -> np.ndarray | None:
+        """Array kolom `bingkai` ("indikator"/"valid"), atau None bila kolom tidak bisa diubah ke float64
+        apa adanya (pemanggil memakai jalur pandas). KeyError bila kolom tidak ada."""
+        kunci = (bingkai, kolom)
+        if kunci in self._kolom:
+            return self._kolom[kunci]
+        seri = getattr(ds, bingkai)[kolom]
         arr = seri.to_numpy(dtype="float64", copy=True) if seri.dtype.kind in "fiu" else None
         if arr is not None:
             arr.setflags(write=False)
-        self._kolom[kolom] = arr
+        self._kolom[kunci] = arr
         return arr
+
+    def tabel_faktor(self, ds: DataSaham) -> tuple[np.ndarray, np.ndarray]:
+        if self._faktor[0] is None:
+            self._faktor[0] = _tabel_faktor(ds.split if ds.split_faktor is None else ds.split_faktor)
+        return self._faktor[0]
 
     @classmethod
     def dari(cls, ds: DataSaham) -> "_Kunci":
@@ -277,6 +285,21 @@ class TampilanSeri:
             return simpan[1]
         return None
 
+    def bar_mentah(self) -> pd.Series | None:
+        """Baris bingkai mentah tepat pada as_of (termasuk bar bertanda), None bila tidak ada."""
+        n = self._jumlah("mentah")
+        if n > 0 and self._kunci.mentah[n - 1] == self._as_of_ns:
+            return self._ds.mentah.iloc[n - 1]
+        return None
+
+    def close_valid_sebelum(self) -> float | None:
+        """Close bar valid terakhir sebelum as_of (acuan "close kemarin"), None bila tidak ada."""
+        n_lt = self.jumlah_bar_valid(termasuk_as_of=False)
+        if n_lt == 0:
+            return None
+        arr = self._kunci.kolom(self._ds, "valid", "close")
+        return float(self._ds.valid["close"].iloc[n_lt - 1] if arr is None else arr[n_lt - 1])
+
     def sebelum(self, kolom: str, k: int) -> float:
         """`x_{t−k}` dengan t = as_of: nilai kolom indikator pada bar valid ke-k sebelum as_of.
         k = 0 → bar as_of sendiri (NaN bila as_of tanpa bar valid). NaN bila bar valid kurang.
@@ -285,7 +308,7 @@ class TampilanSeri:
             raise TypeError(f"k harus bilangan bulat (nilai: {k!r})")
         if k < 0:
             raise LookAheadError(f"akses look-ahead ditolak: {self.kode} {kolom} bar ke-{k} (k < 0)")
-        arr = self._kunci.kolom_indikator(self._ds, kolom)  # KeyError bila kolom tidak ada
+        arr = self._kunci.kolom(self._ds, "indikator", kolom)  # KeyError bila kolom tidak ada
         nilai = self._ds.indikator[kolom].iloc if arr is None else arr
         kunci = self._kunci.indikator
         n_le = self._jumlah("indikator")
@@ -352,8 +375,8 @@ class TampilanSeri:
             d = self._as_of
         else:
             self._cek_tanggal(d)
-        split = self._ds.split if self._ds.split_faktor is None else self._ds.split_faktor
-        return _faktor_split(split, d)
+        tanggal, sufiks = self._kunci.tabel_faktor(self._ds)  # = split.faktor_split, tabel dihitung sekali
+        return float(sufiks[np.searchsorted(tanggal, ke_ts(d).as_unit("ns").value, side="right")])
 
     def nominal(self, harga_adj: Any, d: date | pd.Timestamp | str | None = None) -> Any:
         """Harga nominal pada d = harga tersesuaikan × F(d). Decimal masuk → Decimal keluar."""
