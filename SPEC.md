@@ -300,11 +300,12 @@ asisten-bei/
 │   ├── exit.py                  # mesin exit bersama
 │   ├── portofolio.py            # baca portfolio.csv/akun.yaml, konversi split, saran posisi
 │   ├── backtest/
-│   │   ├── mesin.py
+│   │   ├── mesin.py             # keputusan harian, simulasi run × mode, jalur per sinyal
 │   │   ├── metrik.py
 │   │   ├── jendela.py
-│   │   ├── gerbang.py
-│   │   └── laporan_bt.py
+│   │   ├── gerbang.py           # G1–G6, hash, gate_status.json, holdout_log.csv, subset terjangkau
+│   │   ├── laporan_bt.py
+│   │   └── jalankan.py          # perintah backtest: muat data, run, gerbang, tulis keluaran
 │   ├── jurnal.py                # termasuk --rekonsiliasi
 │   ├── laporan/
 │   │   ├── terminal.py          # rich
@@ -1338,6 +1339,20 @@ Keluaran di `output/backtest/<YYYYMMDD-HHMMSS>_<hash8>/`:
 
 `<run>` memakai enum `run_backtest` (§4.3).
 
+**Run yang dijalankan:** per strategi yang diminta × mode yang diminta. `gabungan_aktif` dan `gabungan_lolos` hanya dijalankan bila `--strategi` tidak diisi. `gabungan_lolos` memerlukan mode `edge` dalam run yang sama, dan dilewati dengan catatan bila tidak ada strategi yang lolos.
+
+**Akhir data backtest** = `backtest.selesai`, atau, bila null, hari bursa terakhir ≤ `t` (§8.6) yang punya bar IHSG valid.
+
+**Kolom berkas** (angka dengan titik desimal tanpa pemisah ribuan; Rupiah 2 desimal ROUND_HALF_UP; R 4 desimal; harga sampai 6 desimal tanpa nol di belakang; tanggal `YYYY-MM-DD`; kosong = tidak ada):
+- `transaksi_*`: `kode, strategi, sektor, tanggal_sinyal, tanggal_entry, tanggal_exit, alasan_exit, tanda_transaksi, lembar, harga_beli, harga_beli_nominal, harga_exit, harga_exit_nominal, stop_awal, stop_awal_nominal, target, target_nominal, biaya_beli_idr, fee_beli_idr, fee_jual_idr, slippage_idr, hasil_jual_idr, pnl_idr, risiko_awal_idr, r, hari, skor, status_pasar_sinyal, pembatas_lot`.
+  - `lembar` = lembar nominal pada tanggal entry.
+  - Harga beli, stop, dan target nominal pada tanggal entry; harga exit nominal pada tanggal exit.
+  - `tanda_transaksi` dipisah `;` dengan urutan enum §4.3.
+  - Posisi yang masih terbuka di akhir ditulis `TERBUKA`: `tanggal_exit` = akhir data, harga exit = close valid terakhir, tanpa fee jual.
+- `ekuitas_*`: `tanggal, kas_idr, nilai_posisi_idr, ekuitas_idr, n_posisi, perkiraan, status_pasar, ihsg_close, ekuitas_ihsg_idr`. Baris pertama = titik awal (§16.4). `perkiraan` 1/0 = ekuitas "≈".
+- `sinyal_dilewati_*`: `tanggal_sinyal, kode, strategi, skor, status_sinyal, status_isi, tanggal_isi, alasan`.
+- `sinyal_r_*`: `tanggal_sinyal, kode, strategi, skor, status_pasar, status_isi, tanggal_entry, tanggal_exit, alasan_exit, r, hari, tanda_transaksi`.
+
 **Disclaimer di semua keluaran:**
 
 - Setiap CSV diawali baris `# BUKAN SARAN INVESTASI ...` (dibaca dengan `comment="#"`). Untuk `holdout_log.csv`, baris ini ditulis saat berkas dibuat.
@@ -1409,7 +1424,7 @@ PENUTUPAN d
 
 - **Pemanasan:** data sejak `data.mulai_unduh`. Tidak ada transaksi sebelum `backtest.mulai`.
 - **In-sample:** `backtest.mulai` … hari bursa terakhir sebelum `holdout_mulai`.
-- **Holdout:** `holdout_mulai` … `selesai`.
+- **Holdout:** `holdout_mulai` … akhir data backtest (§16.1).
 - **Penugasan transaksi:**
   - Transaksi masuk ke periode/jendela berdasarkan **tanggal entry**.
   - Untuk statistik in-sample, transaksi yang masih terbuka pada hari bursa terakhir sebelum `holdout_mulai` diperlakukan `TERBUKA`: dinilai pada close hari itu, tidak masuk PF/win rate, dan diberi tanda `MELEWATI_HOLDOUT`. Ini mencegah harga periode holdout bocor ke statistik in-sample.
@@ -1448,6 +1463,15 @@ Untuk setiap strategi × mode × {in-sample, holdout, penuh, setiap jendela}:
 | Sharpe (informasi) | `mean(r_harian) / std(r_harian) × √(hari_bursa_per_tahun)`, rf = 0, dengan `hari_bursa_per_tahun` = rata-rata jumlah hari bursa per tahun kalender penuh dalam periode backtest |
 | Calmar (informasi) | `CAGR / MaxDD` |
 
+**Definisi rinci:**
+- *Slippage* per transaksi = lembar × |harga acuan − harga isi|. Acuannya: `min(open, harga_maks)` untuk beli; open untuk jual di open; level stop untuk stop intraday. Target dan `DATA_BERAKHIR` tanpa slippage.
+- *Laba kotor* = Σ (P&L bersih + fee + slippage) transaksi tertutup. "% dari laba kotor" ditampilkan "n/a" bila laba kotor ≤ 0.
+- *Exposure* dan *modal terpakai* dihitung atas hari simulasi, tanpa baris titik awal.
+- *Risiko terealisasi* memakai ekuitas pada tanggal sinyal.
+- *Pembatas lot* = `pembatas` sizing (§14.1) ∈ {alokasi, kas, likuid}.
+- *Durasi di bawah puncak* dihitung dalam hari bursa.
+- *Sharpe*: `hari_bursa_per_tahun` = rata-rata hari bursa per tahun kalender penuh dalam periode. Tanpa tahun penuh → 252.
+
 **Pembanding beli-dan-tahan IHSG:** modal yang sama dinilai mengikuti close IHSG dari titik awal periode (§16.4), tanpa fee. Ditampilkan berdampingan: CAGR, MaxDD, return per jendela, dan selisih CAGR. IHSG adalah indeks harga tanpa dividen dan tidak bisa dibeli langsung. Strategi juga tidak memperhitungkan dividen; keduanya konsisten, tetapi sama-sama mengecilkan total return.
 
 ### 16.6 Gerbang
@@ -1460,7 +1484,7 @@ Strategi **lolos** jika semua syarat berikut terpenuhi pada mode `edge`, untuk r
 | G2 | Holdout: PF_R ≥ `min_pf_r_holdout` (1,2). "n/a (tanpa kerugian)" dianggap lolos jika G1 lolos. |
 | G3 | Holdout: ekspektansi R > `min_ekspektansi_r_holdout` (0) |
 | G4 | In-sample: PF_R ≥ `min_pf_r_insample` (1,1) |
-| G5 | In-sample: ≥ `min_pct_jendela_pf_di_atas_1` (50%) jendela yang memenuhi syarat memiliki PF_R > 1. Jika tidak ada jendela yang memenuhi syarat, G5 **gagal**. |
+| G5 | In-sample: ≥ `min_pct_jendela_pf_di_atas_1` (50%) jendela yang memenuhi syarat memiliki PF_R > 1. Jika tidak ada jendela yang memenuhi syarat, G5 **gagal**. PF_R jendela "n/a (tanpa kerugian)" dengan ≥ 1 transaksi menang dihitung > 1. |
 | G6 | Penuh: max drawdown R ≤ `maks_drawdown_r` (15R) |
 
 **Isi `output/backtest/gate_status.json`**, per strategi: `lolos`, hasil setiap syarat (nilai vs ambang), `hash_aturan` (= `hash_aturan[X]`), `hash_input`, `tanggal_data_terakhir`, `dibuat_pada`, `holdout_mulai`, `subset_terjangkau_lemah` (§16.7), dan `folder_run` (folder run asal, tempat `sinyal_r_<strategi>.csv` dibaca oleh §17.4). Ditambah kunci tetap `catatan` (disclaimer).
@@ -1480,6 +1504,10 @@ Strategi **lolos** jika semua syarat berikut terpenuhi pada mode `edge`, untuk r
 ### 16.7 Diagnostik tambahan (informasi, tidak mengubah gerbang)
 
 - **Jalur per sinyal:** setiap sinyal strategi (semua status kecuali `STOP_TERLALU_JAUH`) disimulasikan sebagai 1 unit independen dengan §15.1, tanpa batas slot atau modal. Hasilnya disimpan di `sinyal_r_<strategi>.csv` dengan kolom status pasar. Ringkasan menampilkan statistik R per sinyal, tidak termasuk hari JANGAN BELI.
+  - Satu unit = 1 lembar dengan fee persentase saja (tanpa fee minimum dan pembulatan fee), sehingga R tidak bergantung ukuran posisi.
+  - Pembatalan di open berbasis data/harga (BATAL_DATA, BATAL_GAP, BATAL_ARA) tetap berlaku.
+  - Sinyal hari terakhir berstatus `MENUNGGU`.
+  - Unit yang masih terbuka di akhir dicatat `TERBUKA` dan tidak masuk statistik.
 - **Subset terjangkau:** dari transaksi holdout mode `edge`, ambil yang terjangkau menurut aturan `realistis` pada tanggal sinyal: harga nominal, 1 lot ≤ anggaran risiko dan ≤ alokasi maks yang dihitung dari modal mode `realistis` (`backtest.mode.realistis.modal_idr` yang sudah diresolusi), dengan status pasar hari itu. Tampilkan n, PF_R, dan ekspektansi R. Jika PF_R subset < `min_pf_r_holdout` atau n < `min_transaksi_holdout`, `gate_status.json` mencatat `subset_terjangkau_lemah: true`, dan laporan harian menampilkan peringatan **"keunggulan belum terbukti pada saham yang terjangkau modal Anda"**.
 
 ### 16.8 Survivorship
