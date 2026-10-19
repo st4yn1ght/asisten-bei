@@ -320,10 +320,17 @@ def isi_order(order: Order, bar: BarHari, cfg: "Config", bei: AturanBEI) -> Posi
 
 def keluar_hari_entry(pos: Posisi, bar: BarHari, cfg: "Config", bei: AturanBEI) -> Keluar | None:
     """Open ≤ stop di hari entry → langsung keluar di open × (1 − slip) `STOP_GAP_HARI_ENTRY`, kecuali
-    bar terkunci ARB (jual ditunda, `TERTUNDA_ARB`, dan dijadwalkan untuk bar valid berikutnya)."""
-    if bar.open is None or bar.open > pos.stop:
+    bar terkunci ARB (jual ditunda, `TERTUNDA_ARB`, dan dijadwalkan untuk bar valid berikutnya).
+    Bar entry yang terkunci ARB juga ditandai untuk `intraday`, sehingga stop/target hari itu tidak
+    dieksekusi di harga yang tidak pernah diperdagangkan (§15.1 langkah 1)."""
+    if bar.open is None:
         return None
-    if terkunci_arb(bar, bei):
+    terkunci = terkunci_arb(bar, bei)
+    if terkunci:
+        pos.meta["_terkunci_arb"] = bar.tanggal
+    if bar.open > pos.stop:
+        return None
+    if terkunci:
         pos.tanda.add(TERTUNDA_ARB)
         pos.jual_terjadwal = STOP_GAP_HARI_ENTRY
         pos.tanggal_jadwal = bar.tanggal

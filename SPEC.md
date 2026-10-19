@@ -1274,7 +1274,7 @@ Asumsi:
 **Hari entry:**
 
 - Order beli dari sinyal `d−1` diproses di open `d` (§16.2). Harga isi = `min(open_d × (1 + slip), harga_maks)`.
-- Jika `open_d ≤ S`, order tetap terisi (karena open ≤ limit), lalu langsung keluar di `open_d × (1 − slip)` dengan label `STOP_GAP_HARI_ENTRY`. Transaksi ini dihitung penuh di semua metrik. R-nya dihitung terhadap `risiko_awal_idr` rencana (§4.1), sehingga tetap bermakna (biasanya sedikit di bawah −1R). Jika bar `d` terkunci ARB (langkah 1), jual ditunda seperti biasa.
+- Jika `open_d ≤ S`, order tetap terisi (karena open ≤ limit), lalu langsung keluar di `open_d × (1 − slip)` dengan label `STOP_GAP_HARI_ENTRY`. Transaksi ini dihitung penuh di semua metrik. R-nya dihitung terhadap `risiko_awal_idr` rencana (§4.1). Karena beli dan jual sama-sama di sekitar open, kerugiannya biasanya hanya fee dan slippage, sehingga R berada antara −1 dan 0. Jika bar `d` terkunci ARB (langkah 1), jual ditunda seperti biasa.
 - Langkah 5–6 berlaku di hari entry hanya jika `entry.stop_aktif_hari_entry: true`. Langkah 7 selalu berlaku.
 
 **Seri berhenti (as-of, tanpa melihat masa depan):** jika posisi terbuka tidak punya bar valid selama `backtest.maks_hari_tanpa_bar` (60) hari bursa kalender berturut-turut sampai `d`, posisi ditutup **pada `d`** di close valid terakhir × (1 − `potongan_data_berakhir_pct`/100) dengan label `DATA_BERAKHIR`. Keputusan ini tidak dibatalkan walaupun bar muncul lagi kemudian. Transaksi ini dihitung di semua metrik, dan jumlahnya dilaporkan. Jurnal kertas memakai aturan yang sama.
