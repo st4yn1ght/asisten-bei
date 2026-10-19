@@ -1296,6 +1296,25 @@ def test_prioritas_label_jual_terjadwal(bar, paksa, status, harapan):
     assert k.harga == D(str(bar[-1][0])) * (1 - SLIP)
 
 
+def test_estimasi_hasil_stop_untuk_kas_tersedia():
+    # §13.2 langkah 8: stop_aktif × lembar × (1 − slip) × (1 − fj) = 950 × 100 × 0,999 × 0,9975 = 94.667,7375.
+    pp, od = pb_dasar()
+    p = jalankan(pp, od, E0, E0).pos
+    assert p.estimasi_hasil_stop(pp.cfg) == D("94667.7375")
+
+
+def test_tutup_terbuka_menilai_pada_close_valid_terakhir_tanpa_mengubah_posisi():
+    # §16.9: nilai TERBUKA = lembar × close valid terakhir (E+1 close 1.010; E+2 bar hilang), tanpa fee jual;
+    # "P&L" = 101.000 − 100.250,15 = 749,85. Posisi tidak ditutup.
+    pp, od = pb_dasar((1000, 1015, 995, 1010), None)
+    j = jalankan(pp, od, E0, E0 + 2)
+    k = ex.tutup_terbuka(j.pos, tgl(E0 + 2), pp.cfg)
+    assert k.alasan == ex.TERBUKA and k.harga == D("1010") and k.fee_jual_idr == 0
+    assert k.nilai_idr == D("101000")
+    assert k.pnl_idr == D("749.85") and k.r == D("749.85") / RISIKO_DASAR
+    assert j.pos.terbuka and j.pos.keluar is None
+
+
 def test_paksa_jual_pasar_hanya_saat_jangan_beli():
     cfg = cfg_uji({"kondisi_pasar.jangan_beli_paksa_jual": True})
     pp, od = pb_dasar(NORMAL, NORMAL, cfg=cfg)
@@ -1349,6 +1368,37 @@ def test_split_dalam_masa_tahan_pnl_rupiah_sama_dengan_hitung_tangan_nominal():
     k0 = jalankan(pp0, order(i_sinyal=S0), E0, E0 + 3).keluar
     assert k0.alasan == ex.STOP
     assert (k.nilai_idr, k.hasil_jual_idr, k.pnl_idr, k.r) == (k0.nilai_idr, k0.hasil_jual_idr, k0.pnl_idr, k0.r)
+
+
+def test_split_target_sesudah_split_pnl_rupiah_sama_dengan_nominal():
+    # Target nominal saat entry 1.103 → adj 220,6 (stop adj 190). X (pasca-split) normal; X+1 high 221 ≥ 220,6 →
+    # TARGET di 220,6 untuk 500 lembar: nilai 110.300 = 100 × 1.103 nominal; hasil 110.300 − 275,75 = 110.024,25;
+    # P&L 9.774,10 (= test_target_intraday_tepat_di_target tanpa split).
+    nominal = [*AWAL, NORMAL, (1010, 1020, 1000, 1010), (202, 204, 200, 202), (205, 221, 204, 215)]
+    pp = buat_pasar({KODE: _ke_cache(nominal, SPLIT_X - I0, 5.0)}, split=SPLIT)
+    j = jalankan(pp, order(i_sinyal=S0, faktor="5"), E0, SPLIT_X + 1)
+    k = j.keluar
+    assert k.tanggal == tgl(SPLIT_X + 1) and k.alasan == ex.TARGET
+    assert k.harga == D("220.6") and k.nilai_idr == D("110300")
+    assert k.hasil_jual_idr == D("110024.25")
+    assert k.pnl_idr == D("9774.10")
+    assert k.r == D("9774.10") / RISIKO_DASAR
+
+
+def test_split_jual_terjadwal_dieksekusi_di_open_pasca_split():
+    # stop waktu PB 2 hari: STOP_WAKTU dijadwalkan pada close E+1 (pra-split), dijual di open X (pasca-split) 201:
+    # 201 × 0,999 = 200,799 × 500 lembar = 100.399,5 = 100 × 1.003,995 nominal; P&L −101,64875
+    # (= test_stop_waktu_hari_ke_10_jual_open_hari_ke_11 tanpa split).
+    cfg = cfg_uji({"strategi.pb.stop_waktu_hari": 2})
+    nominal = [*AWAL, NORMAL, (1010, 1020, 1000, 1010), (201, 204, 200, 202)]
+    pp = buat_pasar({KODE: _ke_cache(nominal, SPLIT_X - I0, 5.0)}, cfg, split=SPLIT)
+    j = jalankan(pp, order(i_sinyal=S0, faktor="5"), E0, SPLIT_X)
+    assert j.jadwal[tgl(E0 + 1)] == ex.STOP_WAKTU
+    k = j.keluar
+    assert k.tanggal == tgl(SPLIT_X) and k.alasan == ex.STOP_WAKTU
+    assert k.harga == D("200.799") and k.harga_nominal == D("200.799")
+    assert k.nilai_idr == D("100399.5")
+    assert k.pnl_idr == D("-101.64875")
 
 
 def test_split_sebelum_entry_harga_maks_nominal_dibandingkan_di_ruang_adj():
