@@ -149,6 +149,7 @@ class _Kandidat:
     split: pd.Series
     pesan: str = ""  # alasan tidak ada / gagal
     jenis_error: JenisErrorAmbil | None = None
+    catatan: list[str] = field(default_factory=list)  # catatan pembaruan run ini / catatan provider
 
 
 def _status(bar: pd.DataFrame | None, t: date) -> StatusAmbil:
@@ -165,17 +166,20 @@ def _batas_final(cfg: "Config", sekarang: datetime) -> pd.Timestamp:
 def _dari_cache(isi: IsiCache, nama: str, adalah_indeks: bool, info: "HasilPembaruan | None") -> _Kandidat:
     jenis = info.jenis_error if info is not None and info.status == "GAGAL" else None
     pesan_ambil = info.pesan if info is not None and info.status == "GAGAL" else ""
+    # Catatan pembaruan run ini (revisi volume, unduh ulang penuh & alasannya, bar dihapus, ...) → §8.3.
+    catatan = [f"{nama}: {c}" for c in info.catatan] if info is not None else []
     if isi.rusak or isi.bar is None or len(isi.bar) == 0:
         alasan = isi.pesan if isi.rusak else "tidak ada data di cache"
         pesan = "; ".join(x for x in (pesan_ambil, f"cache {nama}: {alasan}") if x)
-        return _Kandidat(nama, None, normalisasi_split(None), pesan, jenis)
+        return _Kandidat(nama, None, normalisasi_split(None), pesan, jenis, catatan)
     st = validasi_struktur(isi.bar, adalah_indeks=adalah_indeks)
     if not st.ok:
-        return _Kandidat(nama, None, normalisasi_split(None), f"cache {nama}: struktur tidak valid: {st.pesan}", "FORMAT")
+        return _Kandidat(nama, None, normalisasi_split(None), f"cache {nama}: struktur tidak valid: {st.pesan}",
+                         "FORMAT", catatan)
     bar = st.bar.loc[:, [*KOLOM_BAR, "sumber"]] if "sumber" in st.bar.columns else st.bar.loc[:, list(KOLOM_BAR)]
     if "sumber" not in bar.columns:
         bar = bar.assign(sumber=nama)
-    return _Kandidat(nama, bar, split_dari_kolom(isi.bar), pesan_ambil, jenis)
+    return _Kandidat(nama, bar, split_dari_kolom(isi.bar), pesan_ambil, jenis, catatan)
 
 
 def _dari_csv(ctx: "KonteksApp", kode: str, adalah_indeks: bool, sekarang: datetime) -> _Kandidat:
@@ -196,7 +200,8 @@ def _dari_csv(ctx: "KonteksApp", kode: str, adalah_indeks: bool, sekarang: datet
     split = split[split.index < batas]
     if len(bar) == 0:
         return _Kandidat(prov.nama, None, normalisasi_split(None), f"{prov.nama}: tidak ada bar final")
-    return _Kandidat(prov.nama, bar, split)
+    # Catatan provider (mis. "tanpa berkas split: faktor split dianggap 1", §6.9) ikut ke laporan.
+    return _Kandidat(prov.nama, bar, split, catatan=[f"{prov.nama}: {c}" for c in hasil.catatan])
 
 
 def _kandidat(
@@ -253,7 +258,7 @@ def pilih_seri(
     urutan = list(cfg.data.provider_urutan)
     utama = _kandidat(ctx, urutan[0], kode, adalah_indeks, sekarang, info)
     st_utama = _status(utama.bar, t)
-    catatan: list[str] = []
+    catatan: list[str] = list(utama.catatan)
 
     def hasil(status, sumber, bar, split, *, pengganti=False, jenis=None, pesan="") -> SeriTerpilih:
         return SeriTerpilih(
@@ -272,6 +277,7 @@ def pilih_seri(
             sambung = _coba_sambungan(utama, cad, cfg)
             if not isinstance(sambung, str):
                 bar, split = sambung
+                catatan.extend(cad.catatan)
                 catatan.append(
                     f"sambungan {nama}: {int((bar.index > utama.bar.index[-1]).sum())} bar sesudah "
                     f"{utama.bar.index[-1].date().isoformat()}"
@@ -280,6 +286,7 @@ def pilih_seri(
                              jenis=utama.jenis_error, pesan=utama.pesan)
             catatan.append(f"sambungan {nama} ditolak: {sambung}")
         if _status(cad.bar, t) == "OK":
+            catatan.extend(cad.catatan)
             catatan.append(f"pengganti penuh {nama}")
             return hasil("OK", nama, cad.bar, cad.split, pengganti=(nama in PROVIDER_LOKAL),
                          jenis=utama.jenis_error, pesan=utama.pesan)

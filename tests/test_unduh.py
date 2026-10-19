@@ -522,12 +522,6 @@ def test_revisi_close_di_tumpang_tindih_memicu_unduh_ulang_penuh(ctx_uji, akar_u
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: unduh ulang penuh karena revisi close (§8.3, 'riwayat disesuaikan ulang') hanya masuk log; "
-    "ringkasan terminal §19.2 wajib memuat 'catatan unduh ulang penuh' (_cetak_ringkasan hanya mencetak "
-    "penuh_karena_split)",
-)
 def test_unduh_ulang_penuh_karena_revisi_close_tercantum_di_ringkasan(ctx_uji, akar_uji, pasar, atur_waktu):
     atur_waktu("2026-10-14T20:00:00+07:00")
     unduh(ctx_uji, pasar)
@@ -551,11 +545,6 @@ def test_revisi_volume_menimpa_cache_tanpa_unduh_ulang_penuh(ctx_uji, akar_uji, 
     assert bar.loc["2026-10-08", "volume"] == float(baru.loc[tanggal_lokal(baru) == "2026-10-08", "Volume"].iloc[0])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: revisi volume > toleransi_revisi_volume_pct hanya masuk log; §8.3 mewajibkan 'dicatat di log "
-    "dan berkas kualitas' (catatan HasilPembaruan tidak diteruskan ke kolom pesan baris kualitas)",
-)
 def test_revisi_volume_dicatat_di_berkas_kualitas(ctx_uji, akar_uji, pasar, atur_waktu):
     atur_waktu("2026-10-14T20:00:00+07:00")
     unduh(ctx_uji, pasar)
@@ -630,11 +619,6 @@ def test_batas_q_split_menentukan_unduh_ulang_penuh(ctx_uji, akar_uji, pasar, at
     assert pasar.mulai_per_simbol()["BBBB.JK"] == [MULAI_UNDUH if belum else date(2026, 10, 1)]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: unduh ulang penuh karena split belum disesuaikan tidak dicatat di berkas kualitas (§8.4 "
-    "'(dicatat di berkas kualitas)'); catatannya hanya di HasilPembaruan/log dan ringkasan terminal",
-)
 @pytest.mark.parametrize("sumber_diperbaiki", [False, True], ids=["sumber_masih_salah", "sumber_diperbaiki"])
 def test_unduh_ulang_penuh_karena_split_dicatat_di_berkas_kualitas(
     ctx_uji, akar_uji, pasar, atur_waktu, sumber_diperbaiki
@@ -892,12 +876,6 @@ def test_penghitung_batas_kembali_nol_setelah_hasil_lain(ctx_uji, akar_uji, pasa
     assert sorted(r["status_ambil"] for r in rows.values()) == ["GAGAL"] * 4 + ["OK"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: bila batas berturut-turut tercapai pada simbol terakhir (tidak ada sisa simbol), ringkasan "
-    "tidak memuat peringatan blokir Yahoo (§19.2 'peringatan blokir Yahoo', §20.2 'laporan menulis "
-    "diblokir sementara oleh Yahoo'); HasilUnduh.diblokir hanya terisi oleh simbol sesudah blokir",
-)
 def test_peringatan_blokir_walau_batas_tercapai_pada_simbol_terakhir(ctx_uji, akar_uji, pasar):
     pasar.semua = galat_batas
     run = unduh(ctx_uji, pasar, simbol=["AAAA", "BBBB", "CCCC"])
@@ -1021,11 +999,6 @@ def test_main_kode_0_walau_ada_simbol_gagal_dan_log_ditulis(cli, akar_uji, pasar
     assert any("DDDD" in b and "FIKTIF-777" in b for b in isi.splitlines()), isi  # simbol gagal + pesan asli
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: log run unduh tidak mencatat sumber data terpilih per simbol (§19.5 'sumber data per "
-    "simbol'): simbol yang memakai cadangan csv_manual hanya tercatat 'yfinance <KODE> GAGAL'",
-)
 def test_main_log_mencatat_sumber_data_per_simbol(cli, akar_uji, pasar):
     pasar.aturan["AAAA.JK"] = galat_format
     tulis_manual(akar_uji, "AAAA", seri_yf(awal=1000.0), sampai=T)
@@ -1120,3 +1093,36 @@ def test_main_error_tak_terduga_kode_1_dan_kunci_dilepas(cli, akar_uji, pasar):
     assert DISCLAIMER_TEKS in "\n".join(keluaran)
     with kunci_proses(akar_uji, "harian"):
         pass
+
+
+# ---------------------------------------------------------------------------
+# Perbaikan hasil tinjauan: klaim unduh ulang penuh, kegagalan yang tertolong CSV, bar terakhir SEBAGIAN
+# ---------------------------------------------------------------------------
+
+
+def test_unduh_ulang_penuh_split_yang_gagal_tidak_diklaim_berhasil(ctx_uji, akar_uji, pasar, atur_waktu):
+    pasar.data[yf("DDDD")] = seri_yf(awal=1750.0, split=(SPLIT_S, 5.0), q_split=0.2)
+    atur_waktu("2026-10-14T20:00:00+07:00")
+    unduh(ctx_uji, pasar)
+    atur_waktu("2026-10-15T20:00:00+07:00")
+    pasar.aturan[yf("DDDD")] = galat_format
+    run = unduh(ctx_uji, pasar)
+    assert not any(b.startswith("Unduh ulang penuh karena split") and "DDDD" in b for b in run.keluaran)
+    assert ada_baris(run.keluaran, "DDDD", "perlu unduh ulang penuh", "gagal")
+    assert run.hasil.penuh_karena_split == []
+    rows = baris_per_kode(path_kualitas(akar_uji))
+    assert "gagal" in rows["DDDD"]["pesan"] and "split belum disesuaikan" in rows["DDDD"]["pesan"]
+
+
+def test_ringkasan_mencantumkan_unduhan_gagal_yang_tertolong_csv(ctx_uji, akar_uji, pasar):
+    pasar.aturan[yf("AAAA")] = galat_format
+    tulis_manual(akar_uji, "AAAA", seri_yf(awal=1250.0), sampai=T)
+    run = unduh(ctx_uji, pasar)
+    assert run.hasil.status["OK"] == len(SIMBOL_FIXTURE)  # seri AAAA tetap OK lewat csv_manual
+    assert ada_baris(run.keluaran, "yfinance", "GAGAL FORMAT", "AAAA", "dipakai csv_manual")
+
+
+def test_ringkasan_seri_sebagian_menyebut_bar_terakhir(ctx_uji, akar_uji, pasar):
+    pasar.data[yf("BBBB")] = seri_yf(akhir="2026-10-13", awal=1500.0)
+    run = unduh(ctx_uji, pasar)
+    assert ada_baris(run.keluaran, "SEBAGIAN", "BBBB", f"tanpa bar {T.isoformat()}", "bar terakhir 2026-10-13")

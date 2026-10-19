@@ -525,3 +525,61 @@ def test_proses_sungguhan_error_tak_terduga_token_tersensor(tmp_path):
     assert TOKEN_PALSU not in gabungan and EKOR_TOKEN not in gabungan, gabungan
     assert "***" in gabungan
     assert DISCLAIMER_TEKS in hasil.stdout
+
+
+# ---------------------------------------------------------------------------
+# Perbaikan hasil tinjauan: disclaimer di --help/--versi, config/.env bukan UTF-8, konsol non-UTF-8
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("argv", [["--versi"], ["cek", "--help"], ["unduh", "--help"], ["--help"]])
+def test_bantuan_dan_versi_memuat_disclaimer(argv, capsys):
+    with pytest.raises(SystemExit) as e:
+        main(argv, keluar=lambda s: None)
+    assert e.value.code == 0
+    assert DISCLAIMER_TEKS in capsys.readouterr().out
+
+
+def test_config_bukan_utf8_kode_3(proyek):
+    isi = proyek.config.read_text(encoding="utf-8")
+    assert "–" in isi  # karakter non-ASCII di komentar → cp1252 0x96, bukan UTF-8 sah
+    proyek.config.write_bytes(isi.encode("cp1252", errors="replace"))
+    keluaran: list[str] = []
+    assert main([*proyek.umum(), "cek"], keluar=keluaran.append) == 3
+    teks = "\n".join(keluaran)
+    assert "UTF-8" in teks and "tak terduga" not in teks and DISCLAIMER_TEKS in teks
+
+
+def test_config_berupa_folder_kode_3(proyek):
+    keluaran: list[str] = []
+    assert main(["--config", str(proyek.konfig), "--akar", str(proyek.akar), "cek"], keluar=keluaran.append) == 3
+    assert "tak terduga" not in "\n".join(keluaran)
+
+
+def test_env_bukan_utf8_error_menunjuk_env_kode_3(proyek):
+    tulis_config(proyek.config, {"notifikasi.telegram.aktif": True})
+    (proyek.akar / ".env").write_bytes("TELEGRAM_BOT_TOKEN=abc\nTELEGRAM_CHAT_ID=1\n".encode("utf-16"))
+    keluaran: list[str] = []
+    assert main([*proyek.umum(), "cek"], keluar=keluaran.append) == 3
+    teks = "\n".join(keluaran)
+    assert any("ERROR" in b and ".env" in b for b in keluaran) and "tak terduga" not in teks
+    assert "Resolusi rujukan" in teks  # cek tetap selesai sampai akhir
+
+
+def test_konsol_bukan_utf8_mengganti_karakter_bukan_berhenti(monkeypatch):
+    import io
+
+    mentah = io.BytesIO()
+    aliran = io.TextIOWrapper(mentah, encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", aliran)
+    operasional.pasang_penyaring_rahasia()
+    print("stop_awal 2.000 ≥ harga_beli 1.990; nilai ≈ Rp 1; volume ÷ F")  # ≥ ≈ ÷ tidak ada di cp1252
+    sys.stdout.flush()
+    hasil = mentah.getvalue()
+    assert b"stop_awal 2.000 ? harga_beli" in hasil and b"\xf7" in hasil  # ÷ ada di cp1252, ≥/≈ jadi ?
+
+
+def test_simbol_kosong_ditolak_kode_3(proyek):
+    keluaran: list[str] = []
+    assert main([*proyek.umum(), "unduh", "--simbol", ""], keluar=keluaran.append) == 3
+    assert any("--simbol" in b for b in keluaran)

@@ -307,6 +307,18 @@ def _excepthook_tersensor(jenis, nilai, tb) -> None:
         pass
 
 
+def _ganti_karakter_tak_tertampil(aliran) -> None:
+    """Konsol/berkas bukan UTF-8 (mis. cp1252 Windows tanpa PYTHONUTF8): karakter yang tak bisa ditulis
+    diganti `?`, bukan UnicodeEncodeError yang menghentikan program (§19.2)."""
+    enc = (getattr(aliran, "encoding", None) or "").lower().replace("-", "").replace("_", "")
+    if enc in ("utf8", "utf8sig") or not hasattr(aliran, "reconfigure"):
+        return
+    try:
+        aliran.reconfigure(errors="replace")
+    except (AttributeError, ValueError, OSError):  # aliran tertutup/tak bisa dikonfigurasi: biarkan
+        pass
+
+
 def pasang_penyaring_rahasia() -> None:
     """Langkah PERTAMA di `__main__` (§19.5): daftarkan `TELEGRAM_BOT_TOKEN` dari env, bungkus
     `sys.stdout`/`sys.stderr`, dan ganti `sys.excepthook`. Idempoten."""
@@ -314,6 +326,7 @@ def pasang_penyaring_rahasia() -> None:
     for nama in ("stdout", "stderr"):
         aliran = getattr(sys, nama)
         if aliran is not None and not isinstance(aliran, _PenulisTersensor):
+            _ganti_karakter_tak_tertampil(aliran)
             setattr(sys, nama, _PenulisTersensor(aliran))
     if sys.excepthook is not _excepthook_tersensor:
         sys.excepthook = _excepthook_tersensor
@@ -344,7 +357,11 @@ def cek_env(akar: Path, telegram_aktif: bool) -> list[tuple[str, str]]:
     if not (akar / ".env").is_file():
         hasil.append(("PERINGATAN", "Telegram belum disiapkan (.env tidak ada)"))
         return hasil
-    env = muat_env(akar)
+    try:
+        env = muat_env(akar)
+    except (UnicodeDecodeError, OSError) as e:
+        hasil.append(("ERROR", f".env tidak terbaca ({type(e).__name__}): simpan ulang dengan Notepad sebagai UTF-8"))
+        return hasil
     kosong = [k for k in (ENV_TOKEN, ENV_CHAT_ID) if not env.get(k)]
     if kosong:
         hasil.append(("PERINGATAN", f"Telegram belum disiapkan: {', '.join(kosong)} di .env masih kosong"))

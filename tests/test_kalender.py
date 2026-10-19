@@ -460,14 +460,33 @@ def test_turunan_penyebut_nol():
 
 
 def test_turunan_saham_tercatat_tanpa_bar_dihitung_di_penyebut():
-    # C tercatat sejak 03-01 lalu tidak punya bar 03-04; A, B baru tercatat 03-04 → penyebut {C} → 0/1.
+    # C tercatat sejak 03-01 (dan masih punya bar 03-05) tetapi tidak punya bar 03-04; A, B baru tercatat
+    # 03-04 → penyebut 03-04 = {C} → 0/1 → bukan hari bursa. 03-05: A, B sudah berakhir (bar terakhir
+    # 03-04) → penyebut {C} → 1/1 → hari bursa. 03-01: penyebut kosong, C aktif → hari bursa.
     bar = {
         "A": _bar_volume({"2024-03-04": 100}),
         "B": _bar_volume({"2024-03-04": 100}),
-        "C": _bar_volume({"2024-03-01": 100}),
+        "C": _bar_volume({"2024-03-01": 100, "2024-03-05": 100}),
     }
     hari, _ = hitung_kalender_turunan(bar, 50, ())
-    assert hari == {date(2024, 3, 1)}
+    assert hari == {date(2024, 3, 1), date(2024, 3, 5)}
+
+
+def test_turunan_saham_yang_datanya_berakhir_tidak_ikut_menilai():
+    # §8.7: C berakhir 03-01 (delisting / cache basi) → tidak ikut penyebut sesudahnya; 03-04 = 2/2.
+    bar = {
+        "A": _bar_volume({"2024-02-29": 100, "2024-03-04": 100}),
+        "B": _bar_volume({"2024-02-29": 100, "2024-03-04": 100}),
+        "C": _bar_volume({"2024-02-29": 100, "2024-03-01": 100}),
+    }
+    hari, _ = hitung_kalender_turunan(bar, 50, ())
+    assert date(2024, 3, 4) in hari
+    # 03-01: penyebut {A, B, C} (A, B masih punya bar sesudahnya), hanya C aktif → 1/3 < 50% → bukan hari bursa.
+    assert date(2024, 3, 1) not in hari
+    # Sebagai pembanding: tanpa C, 03-04 tetap hari bursa; dengan C yang masih aktif tetapi tanpa bar → 2/3.
+    bar["C"] = _bar_volume({"2024-02-29": 100, "2024-03-05": 100})
+    hari, _ = hitung_kalender_turunan(bar, 70, ())
+    assert date(2024, 3, 4) not in hari  # 2/3 < 70%
 
 
 def test_turunan_volume_nan_nol_duplikat_akhir_pekan_dan_tahun_dikecualikan():

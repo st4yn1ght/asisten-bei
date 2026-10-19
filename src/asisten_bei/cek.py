@@ -18,6 +18,8 @@ from decimal import Decimal
 
 from . import DISCLAIMER, teks, waktu
 from .config import KonteksApp, resolusi_konteks
+from .data.kualitas import TANDA_HARI_NONBURSA
+from .data.provider import ke_ts
 from .data.sumber import muat_pasar, pilih_seri
 from .inputs import (
     ERROR,
@@ -198,21 +200,27 @@ def silang(ctx: KonteksApp, kode_teks: str, tanggal_teks: str, keluar: Callable[
         keluar(f"  Tidak ada data untuk {kode}: {s.pesan or 'tidak ada data'}. Jalankan unduh dulu.")
         return
     ds = termuat.data[kode]
-    ts = s.bar.index[s.bar.index == d]
-    if len(ts) == 0:
+    ts = ke_ts(d)  # index seri = Timestamp tengah malam; datetime.date tidak pernah sama dengan Timestamp
+    if ts not in s.bar.index:
         keluar(f"  Tidak ada bar {kode} pada {d.isoformat()} di seri terpilih (tidak dicari tanggal terdekat).")
         return
-    bar = s.bar.loc[ts[0]]
-    tanda = ""
-    if ts[0] in ds.mentah.index:
-        tanda = str(ds.mentah.loc[ts[0], "tanda_bar"]) or "valid"
+    bar = s.bar.loc[ts]
+    if ts in ds.mentah.index:
+        tanda = str(ds.mentah.loc[ts, "tanda_bar"]) or "valid"
     else:
-        tanda = "dibuang (bukan hari bursa menurut kalender)"
+        tanda = f"{TANDA_HARI_NONBURSA} (dibuang: bukan hari bursa menurut kalender)"
     dv = termuat.pasar.tampilan(d)
     f = dv.faktor_split(kode)
     pengali = float(ctx.cfg.data.pengali_volume)
-    sesudah = [f"{i.date().isoformat()} ×{r:g}" for i, r in s.split.items() if i.date() > d]
-    keluar(f"  Bar cache (tersesuaikan split): open {_angka(bar['open'])}, high {_angka(bar['high'])}, "
+    tak_ikut = set() if ds.split_faktor is None else set(ds.split.index) - set(ds.split_faktor.index)
+    sesudah = [
+        f"{i.date().isoformat()} ×{r:g}"
+        + (" (belum disesuaikan sumber: tidak ikut F; harga cache sebelum tanggal ini sudah nominal — "
+           "SPLIT_BELUM_DISESUAIKAN)" if i in tak_ikut else "")
+        for i, r in s.split.items() if i.date() > d
+    ]
+    judul = "Bar cache (tersesuaikan split" + (", kecuali split belum disesuaikan sumber)" if tak_ikut else ")")
+    keluar(f"  {judul}: open {_angka(bar['open'])}, high {_angka(bar['high'])}, "
            f"low {_angka(bar['low'])}, close {_angka(bar['close'])}, volume {_angka(bar['volume'], 0)}")
     keluar(f"  Sumber bar: {bar.get('sumber', '') or '-'}; tanda bar: {tanda}")
     keluar(f"  F({d.isoformat()}) = {f:g}" + (f" (split sesudahnya: {', '.join(sesudah)})" if sesudah else " (tidak ada split sesudahnya)"))
@@ -302,6 +310,13 @@ def jalankan_cek(
         if not breadth:
             keluar("  perbandingan kalender dilewati: belum ada data cache breadth (jalankan unduh dulu)")
         else:
+            basi = sorted(k for k, bar in breadth.items() if bar.index[-1] < ke_ts(t))
+            if basi:
+                # Saham yang datanya berakhir sebelum t tidak ikut menilai tanggal sesudahnya (§8.7).
+                p = (f"cache breadth belum sampai t ({t.isoformat()}) untuk {len(basi)} dari {len(breadth)} saham: "
+                     + ", ".join(basi[:10]) + (" ..." if len(basi) > 10 else "") + " — jalankan unduh")
+                hasil.peringatan.append(p)
+                keluar(f"  PERINGATAN: {p}")
             pesan = bandingkan_kalender(kal, breadth, float(cfg.data.validasi.min_hari_kalender_historis_pct), t)
             if not pesan:
                 keluar(f"  kalender manual cocok dengan data breadth ({len(breadth)} saham)")

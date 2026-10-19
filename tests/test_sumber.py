@@ -976,11 +976,6 @@ def test_muat_pasar_hanya_membaca(akar_uji):
     assert not (ctx.path(ctx.cfg.data.folder_cache) / "csv_manual").exists()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: sumber._dari_csv membuang HasilAmbil.catatan dari CsvManualProvider "
-    "('tanpa berkas split: faktor split dianggap 1'); peringatan §6.9 tidak sampai ke SeriTerpilih/berkas kualitas",
-)
 def test_peringatan_csv_manual_tanpa_berkas_split(akar_uji):
     """§6.9: tanpa `<KODE>_split.csv` faktor split dianggap 1 **dan laporan memberi peringatan**. Satu-satunya
     pembaca CSV manual adalah `pilih_seri`, jadi peringatan itu harus terbawa ke seri terpilih / berkas

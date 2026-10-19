@@ -392,11 +392,12 @@ def perbarui_cache(
             meta = dict(meta_lama) if meta_lama else buat_meta(
                 lama, sekarang=now, versi_provider=versi_provider
             )
-            if not meta.get("tidak_ada_data_sejak"):
+            # Tanggal percobaan TERAKHIR yang gagal (§8.3): percobaan ulang yang gagal lagi menunda N hari lagi.
+            if meta.get("tidak_ada_data_sejak") != hari.isoformat():
                 meta["tidak_ada_data_sejak"] = hari.isoformat()
                 cache.tulis_meta(kode, meta)
-                coba = hari + timedelta(days=n_coba)
-                catatan.append(f"tidak ada data: dicoba lagi paling cepat {coba.isoformat()}")
+            coba = hari + timedelta(days=n_coba)
+            catatan.append(f"tidak ada data: dicoba lagi paling cepat {coba.isoformat()}")
             isi_ret = IsiCache(lama, meta, isi.rusak, isi.pesan) if not isi.rusak else isi
         return HasilPembaruan(kode, "GAGAL", jenis, pesan, isi_ret, unduh_penuh, False, catatan, revisi_volume)
 

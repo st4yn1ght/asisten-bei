@@ -866,13 +866,6 @@ def test_cek_tidak_memegang_kunci(akar_uji):
 # cek --silang KODE TANGGAL (§19.2, §22.3 langkah 3, §8.4)
 # ---------------------------------------------------------------------------
 
-_BUG_SILANG = (
-    "BUG: cek.silang mencari bar dengan `s.bar.index == d` (DatetimeIndex vs datetime.date); di pandas 3 "
-    "perbandingan itu selalu False, sehingga --silang tidak pernah menemukan bar yang ada di cache "
-    "(selalu 'Tidak ada bar ...')"
-)
-
-
 def seri_silang(*, disesuaikan: bool = True, **bar_d) -> pd.DataFrame:
     """AAAA 2025-06-02…2026-10-15, split 1:5 pada S_SPLIT. Sudah disesuaikan: harga sebelum S dibagi 5
     (tanpa lompatan di S). Belum disesuaikan: harga sebelum S nominal (q = close_S / close_S−1 = 1/5)."""
@@ -912,7 +905,6 @@ def nilai_f(h: Hasil, d: date) -> Decimal:
     return ke_angka(m.group(1))
 
 
-@pytest.mark.xfail(strict=True, reason=_BUG_SILANG)
 def test_silang_split_sesudah_tanggal_f_5_dan_nilai_nominal(akar_silang):
     h = silang(akar_silang, "AAAA", D_SILANG)
     assert h.kode == 0, h.teks
@@ -933,7 +925,6 @@ def test_silang_split_sesudah_tanggal_f_5_dan_nilai_nominal(akar_silang):
     assert transaksi and Decimal("124800000000") in semua_angka(transaksi[0]), h.teks
 
 
-@pytest.mark.xfail(strict=True, reason=_BUG_SILANG)
 def test_silang_sumber_dan_tanda_bar_valid(akar_silang):
     h = silang(akar_silang, "AAAA", D_SILANG)
     per_bar = h.dengan("sumber", "tanda", kecil=True)
@@ -942,7 +933,6 @@ def test_silang_sumber_dan_tanda_bar_valid(akar_silang):
         assert tanda not in per_bar[0]
 
 
-@pytest.mark.xfail(strict=True, reason=_BUG_SILANG)
 @pytest.mark.parametrize(
     "tanggal, f_harap",
     [(date(2026, 5, 29), 5), (S_SPLIT, 1), (date(2026, 6, 2), 1)],
@@ -958,7 +948,6 @@ def test_silang_f_hanya_split_sesudah_tanggal(akar_silang, tanggal, f_harap):
     assert nilai_label(nom, "volume") == Decimal(str(BAR_LAIN["volume"])) / f_harap * PENGALI_SILANG, nom
 
 
-@pytest.mark.xfail(strict=True, reason=_BUG_SILANG)
 def test_silang_split_belum_disesuaikan_tidak_ikut_f(akar_uji):
     """§8.4: split yang belum disesuaikan sumber tidak ikut F(d): harga cache sebelum s sudah nominal."""
     tulis_cache(akar_uji, "AAAA", seri_silang(disesuaikan=False), split={S_SPLIT: 5})
@@ -969,7 +958,6 @@ def test_silang_split_belum_disesuaikan_tidak_ikut_f(akar_uji):
     assert nilai_label(nom, "open") == Decimal(str(BAR_D["open"])) * 5, nom  # = harga cache (nominal)
 
 
-@pytest.mark.xfail(strict=True, reason=_BUG_SILANG)
 @pytest.mark.parametrize(
     "bar_d, tanda",
     [({"volume": 0.0}, "TANPA_TRANSAKSI"), ({"high": 190.0, "low": 196.0}, "BAR_RUSAK")],
@@ -983,11 +971,6 @@ def test_silang_tanda_bar(akar_uji, bar_d, tanda):
     assert per_bar and tanda in per_bar[0], h.teks
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=_BUG_SILANG + "; selain itu bar pada tanggal libur holidays.csv ditandai teks bebas 'dibuang (bukan "
-    "hari bursa menurut kalender)', bukan enum tanda_bar BAR_HARI_NONBURSA (§4.3, §8.5)",
-)
 def test_silang_bar_pada_hari_libur_bertanda_bar_hari_nonbursa(akar_uji):
     tulis_libur(akar_uji, "2026-03-03", "2026-12-25", "2027-01-01")
     tulis_cache(akar_uji, "AAAA", seri_silang(), split={S_SPLIT: 5})  # cache memuat bar 2026-03-03
@@ -997,7 +980,6 @@ def test_silang_bar_pada_hari_libur_bertanda_bar_hari_nonbursa(akar_uji):
     assert per_bar and "BAR_HARI_NONBURSA" in per_bar[0], h.teks
 
 
-@pytest.mark.xfail(strict=True, reason=_BUG_SILANG)
 def test_silang_sumber_per_bar_sambungan_csv_manual(akar_uji):
     """§8.2 butir 4: setiap bar menyimpan sumbernya; bar t dari sambungan csv_manual bersumber csv_manual."""
     tulis_cache(akar_uji, "AAAA", bingkai("2026-07-01", "2026-10-14"))  # SEBAGIAN: tanpa bar t
@@ -1013,7 +995,6 @@ def test_silang_sumber_per_bar_sambungan_csv_manual(akar_uji):
     assert sumber_lama and "yfinance" in sumber_lama[0] and "csv_manual" not in sumber_lama[0], h_lama.teks
 
 
-@pytest.mark.xfail(strict=True, reason=_BUG_SILANG)
 def test_silang_ihsg_tanpa_volume(akar_uji):
     df = bingkai("2025-06-02", "2026-10-15", open=7100.0, high=7150.0, low=7050.0, close=7123.45, volume=float("nan"))
     tulis_cache(akar_uji, "IHSG", df)
@@ -1092,3 +1073,18 @@ def test_silang_lewat_jalankan_cek_langsung_error_tercatat(akar_uji):
     hasil = jalankan_cek(konteks(akar_uji), silang_kode=("AAAA", "2026-10-16"), keluar=lambda s: None)
     assert hasil.kode_keluar == 3
     assert hasil.error
+
+
+# ---------------------------------------------------------------------------
+# Perbaikan hasil tinjauan: cache breadth basi tidak memunculkan dugaan libur palsu (§8.7)
+# ---------------------------------------------------------------------------
+
+
+def test_cache_breadth_basi_diperingatkan_tanpa_dugaan_libur_palsu(akar_uji):
+    tulis_cache(akar_uji, "AAAA", bingkai("2026-01-05", T.isoformat()))
+    for kode in ("BBBB", "CCCC", "DDDD"):  # cache belum diperbarui sejak 30 September
+        tulis_cache(akar_uji, kode, bingkai("2026-01-05", "2026-09-30"))
+    h = cek(akar_uji)
+    assert h.kode == 0
+    assert h.ada("cache breadth belum sampai t", "BBBB", "CCCC", "DDDD")
+    assert not h.ada("mungkin libur", kecil=True), h.teks

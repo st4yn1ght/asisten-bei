@@ -678,6 +678,12 @@ def baca_yaml(path: Path) -> Any:
             return yaml.safe_load(f)
     except FileNotFoundError:
         raise ConfigTidakValid([f"berkas config tidak ditemukan: {path}"]) from None
+    except UnicodeDecodeError as e:
+        raise ConfigTidakValid(
+            [f"{path}: berkas bukan teks UTF-8 (byte ke-{e.start}); simpan ulang sebagai UTF-8 dengan Notepad"]
+        ) from None
+    except OSError as e:
+        raise ConfigTidakValid([f"berkas config tidak terbaca: {path}: {e.strerror or e}"]) from None
     except yaml.YAMLError as e:
         raise ConfigTidakValid([f"YAML tidak valid di {path}: {e}"]) from None
 

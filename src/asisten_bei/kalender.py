@@ -134,8 +134,9 @@ def hitung_kalender_turunan(
     """Hari bursa turunan dari bar MENTAH saham breadth (sebelum validasi).
 
     Tanggal `d` (Senin–Jumat, tahunnya tidak dikecualikan) adalah hari bursa jika ≥ `min_pct` persen
-    saham yang bar pertamanya < d memiliki bar bervolume > 0 pada d. Jika belum ada saham yang bar
-    pertamanya < d (penyebut 0), d adalah hari bursa bila setidaknya satu saham bervolume > 0 pada d.
+    saham yang bar pertamanya < d DAN bar terakhirnya ≥ d memiliki bar bervolume > 0 pada d (saham yang
+    datanya sudah berakhir — delisting atau cache belum diperbarui — tidak ikut menilai d). Jika tidak ada
+    saham seperti itu (penyebut 0), d adalah hari bursa bila setidaknya satu saham bervolume > 0 pada d.
 
     Mengembalikan (himpunan hari bursa, (tanggal data pertama, tanggal data terakhir)) — rentang
     dipakai `Kalender` agar tanggal di luar data turunan jatuh ke aturan Senin–Jumat.
@@ -143,6 +144,7 @@ def hitung_kalender_turunan(
     dikecualikan = set(tahun_dikecualikan)
     seri_aktif = {}
     pertama = {}
+    terakhir = {}
     for kode, df in bar_mentah.items():
         if df is None or len(df) == 0:
             continue
@@ -152,18 +154,20 @@ def hitung_kalender_turunan(
         aktif = aktif.groupby(level=0).max()  # duplikat tanggal: cukup salah satu bervolume
         seri_aktif[kode] = aktif
         pertama[kode] = idx.min()
+        terakhir[kode] = idx.max()
     if not seri_aktif:
         return set(), None
     semua = pd.DataFrame(seri_aktif).sort_index()
     tanggal = semua.index
     aktif = semua.fillna(False).astype(bool).to_numpy()
     pertama_arr = np.array([pertama[k] for k in semua.columns], dtype="datetime64[ns]")
+    terakhir_arr = np.array([terakhir[k] for k in semua.columns], dtype="datetime64[ns]")
     hasil: set[date] = set()
     for i, ts in enumerate(tanggal):
         d = ts.date()
         if d.weekday() >= 5 or d.year in dikecualikan:
             continue
-        sudah = pertama_arr < np.datetime64(ts)
+        sudah = (pertama_arr < np.datetime64(ts)) & (terakhir_arr >= np.datetime64(ts))
         penyebut = int(sudah.sum())
         if penyebut == 0:
             if aktif[i].any():

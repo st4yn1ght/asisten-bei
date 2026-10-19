@@ -83,8 +83,11 @@ class HasilUnduh:
     t: date
     simbol: list[str]
     pembaruan: dict[str, dict[str, HasilPembaruan]] = field(default_factory=dict)  # kode → provider → hasil
-    penuh_karena_split: list[str] = field(default_factory=list)
+    penuh_karena_split: list[str] = field(default_factory=list)  # unduh ulang penuh §8.4 yang berhasil
+    perlu_penuh_gagal: list[tuple[str, str]] = field(default_factory=list)  # (kode, alasan gagal)
+    penuh_tak_diminta: list[tuple[str, str]] = field(default_factory=list)  # (kode, alasan) revisi/rusak
     diblokir: dict[str, list[str]] = field(default_factory=dict)  # provider → kode yang tidak diminta
+    provider_diblokir: list[str] = field(default_factory=list)  # provider yang mencapai batas di run ini
     path_kualitas: object | None = None
     status: Counter = field(default_factory=Counter)
     peringatan: list[str] = field(default_factory=list)
@@ -127,16 +130,30 @@ def jalankan_unduh(
         for nama in cfg.data.provider_urutan:
             if nama in PROVIDER_LOKAL:
                 continue
+            mulai = waktu.sekarang()
             _unduh_provider(ctx, nama, daftar, penuh, kal_manual, sekarang, hasil, pabrik_ticker, tidur)
+            _log_durasi(f"unduh {nama}", mulai)
 
+        mulai = waktu.sekarang()
         termuat = muat_pasar(ctx, masukan, daftar, akhir=t, t=t, sekarang=sekarang, info=hasil.pembaruan)
         baris = baris_kualitas(termuat, daftar, t)
+        for k in daftar:
+            s = termuat.seri[k]
+            log.info("seri %s: %s, sumber %s%s", k, s.status, s.sumber or "-",
+                     "".join(f"; {c}" for c in (s.pesan, *s.catatan) if c))
+        _log_durasi("penilaian seri (§8.2) as-of t", mulai)
         hasil.status = Counter(termuat.seri[k].status for k in daftar)
+        mulai = waktu.sekarang()
         hasil.path_kualitas = tulis_berkas_kualitas(
             path_berkas_kualitas(ctx.akar, "unduh", sekarang), baris, hasil.peringatan
         )
+        _log_durasi("tulis berkas kualitas", mulai)
         _cetak_ringkasan(ctx, hasil, termuat, baris, keluar)
     return hasil
+
+
+def _log_durasi(langkah: str, mulai: datetime) -> None:
+    log.info("langkah %s: %.1f s", langkah, (waktu.sekarang() - mulai).total_seconds())
 
 
 def _unduh_provider(
@@ -157,10 +174,9 @@ def _unduh_provider(
     versi = getattr(provider, "versi_provider", "")
     for kode in daftar:
         sebelum_blokir = kebijakan.diblokir
-        penuh_k = penuh
-        if not penuh_k and _perlu_unduh_penuh(cache.baca(kode), kode, kal):
-            penuh_k = True
-            hasil.penuh_karena_split.append(kode)
+        lama = cache.baca(kode)
+        ada_cache = lama.rusak or (lama.bar is not None and len(lama.bar) > 0)
+        split_masalah = not penuh and _perlu_unduh_penuh(lama, kode, kal)
         h = perbarui_cache(
             lambda k, m, a: kebijakan.ambil(provider, k, m, a),
             cache,
@@ -168,16 +184,27 @@ def _unduh_provider(
             cfg=cfg,
             kal=kal,
             sekarang=sekarang,
-            penuh=penuh_k,
+            penuh=penuh or split_masalah,
             adalah_indeks=(kode == KODE_IHSG),
             versi_provider=versi,
         )
-        if kode in hasil.penuh_karena_split:
-            h.catatan.insert(0, "split belum disesuaikan sumber di cache: unduh ulang penuh")
+        berhasil_penuh = h.status == "OK" and h.unduh_penuh and not h.dilewati
+        if split_masalah:
+            h.catatan.insert(0, "split belum disesuaikan sumber di cache: unduh ulang penuh"
+                             + ("" if berhasil_penuh else " (gagal: cache tidak diubah)"))
+            if berhasil_penuh:
+                hasil.penuh_karena_split.append(kode)
+            else:
+                hasil.perlu_penuh_gagal.append((kode, f"{h.jenis_error or h.status}: {h.pesan}".strip()))
+        elif berhasil_penuh and not penuh and ada_cache:
+            alasan = [c for c in h.catatan if not c.startswith("revisi volume")]
+            hasil.penuh_tak_diminta.append((kode, "; ".join(alasan) or "unduh ulang penuh"))
         if sebelum_blokir:
             hasil.diblokir.setdefault(nama, []).append(kode)
         hasil.pembaruan.setdefault(kode, {})[nama] = h
         _log_pembaruan(nama, h)
+    if kebijakan.diblokir:
+        hasil.provider_diblokir.append(nama)
 
 
 def _log_pembaruan(nama: str, h: HasilPembaruan) -> None:
@@ -195,9 +222,12 @@ def _cetak_ringkasan(ctx: KonteksApp, hasil: HasilUnduh, termuat, baris, keluar:
     keluar("")
     keluar(f"Ringkasan unduh (t = {hasil.t.isoformat()}): {n} simbol — OK {st.get('OK', 0)}, "
            f"SEBAGIAN {st.get('SEBAGIAN', 0)}, GAGAL {st.get('GAGAL', 0)}")
-    for nama, kode in hasil.diblokir.items():
-        keluar(f"PERINGATAN: {nama} {PESAN_DIBLOKIR}; {len(kode)} simbol tidak diminta dan memakai cache/CSV: "
-               + ", ".join(kode[:20]) + (" ..." if len(kode) > 20 else ""))
+    for nama in hasil.provider_diblokir:
+        kode = hasil.diblokir.get(nama, [])
+        sisa = (f"{len(kode)} simbol sisanya tidak diminta dan memakai cache/CSV: " + ", ".join(kode[:20])
+                + (" ..." if len(kode) > 20 else "")) if kode else "batas tercapai pada simbol terakhir"
+        keluar(f"PERINGATAN: {nama} {PESAN_DIBLOKIR} ({ctx.cfg.data.maks_simbol_kena_batas_berturut} simbol "
+               f"berturut-turut kena batas); {sisa}. Coba unduh lagi nanti.")
     jenis = Counter()
     for kode in hasil.simbol:
         for h in hasil.pembaruan.get(kode, {}).values():
@@ -207,12 +237,34 @@ def _cetak_ringkasan(ctx: KonteksApp, hasil: HasilUnduh, termuat, baris, keluar:
         keluar("PERINGATAN: hampir semua simbol gagal FORMAT — periksa versi yfinance (SPEC §22.3) sebelum upgrade/downgrade.")
     if hasil.penuh_karena_split:
         keluar("Unduh ulang penuh karena split belum disesuaikan sumber: " + ", ".join(hasil.penuh_karena_split))
+    for kode, alasan in hasil.perlu_penuh_gagal:
+        keluar(f"PERINGATAN: {kode} perlu unduh ulang penuh (split belum disesuaikan sumber) tetapi gagal: {alasan}")
+    for kode, alasan in hasil.penuh_tak_diminta:
+        keluar(f"Unduh ulang penuh {kode}: {alasan}")
+    diblokir = {k for ks in hasil.diblokir.values() for k in ks}
+    gagal = []
     for kode in hasil.simbol:
+        for nama, h in hasil.pembaruan.get(kode, {}).items():
+            if h.status != "GAGAL" or kode in diblokir:
+                continue
+            s = termuat.seri[kode]
+            dipakai = f" — dipakai {s.sumber} ({s.status})" if s.ada_data else ""
+            tanda = "dilewati" if h.dilewati else f"GAGAL {h.jenis_error}"
+            gagal.append(f"  {nama} {tanda} {kode}: {h.pesan}{dipakai}")
+    if gagal:
+        keluar(f"Unduhan gagal ({len(gagal)}):")
+        for g in gagal:
+            keluar(g)
+    tidak_ok = [k for k in hasil.simbol if termuat.seri[k].status != "OK"]
+    if tidak_ok:
+        keluar(f"Seri tidak OK ({len(tidak_ok)}):")
+    for kode in tidak_ok:
         s = termuat.seri[kode]
-        if s.status == "OK":
-            continue
-        rinci = "; ".join(x for x in (s.pesan, *s.catatan) if x) or "tanpa keterangan"
-        keluar(f"  {s.status:8s} {kode}: {rinci}")
+        bagian = []
+        if s.ada_data:
+            bagian.append(f"tanpa bar {hasil.t.isoformat()}; bar terakhir {s.bar.index[-1].date().isoformat()}")
+        bagian += [x for x in (s.pesan, *s.catatan) if x]
+        keluar(f"  {s.status:8s} {kode}: {'; '.join(bagian) or 'tanpa keterangan'}")
     alasan = Counter(b.alasan_dikeluarkan for b in baris if b.alasan_dikeluarkan)
     if alasan:
         keluar("Dikeluarkan karena data (as-of t): " + ", ".join(f"{k} {v}" for k, v in sorted(alasan.items())))

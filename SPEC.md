@@ -808,7 +808,7 @@ class HasilAmbil:
 
 ### 8.3 Cache
 
-- Lokasi: `data/cache/<provider>/<KODE>.parquet` + `<KODE>.meta.json`. Meta berisi `diambil_pada` (WIB), `bar_pertama`, `bar_terakhir`, `jumlah_bar`, `versi_provider`, `split_terakhir`, dan `tidak_ada_data_sejak`.
+- Lokasi: `data/cache/<provider>/<KODE>.parquet` + `<KODE>.meta.json`. Meta berisi `diambil_pada` (WIB), `bar_pertama`, `bar_terakhir`, `jumlah_bar`, `versi_provider`, `split_terakhir`, dan `tidak_ada_data_sejak`. Kunci terakhir ini berisi tanggal permintaan **terakhir** yang menghasilkan `TIDAK_ADA_DATA`. Setiap percobaan ulang yang gagal lagi memperbaruinya, sehingga jeda `coba_lagi_tidak_ada_data_hari` berlaku lagi.
 - **Update inkremental:** unduh mulai `bar_cek_ulang` hari bursa sebelum `bar_terakhir`. Bar yang tumpang tindih **selalu ditimpa** dengan nilai terbaru.
   - Selisih close > `toleransi_revisi_pct`, atau split baru → unduh ulang penuh, dicatat "riwayat disesuaikan ulang".
   - Selisih volume > `toleransi_revisi_volume_pct` → dicatat di log dan berkas kualitas.
@@ -903,7 +903,7 @@ class HasilAmbil:
 ### 8.7 Kalender bursa
 
 - **Kalender manual:** Senin–Jumat dikurangi `holidays.csv`. Dipakai untuk menentukan `t` dan `t+1`, dan untuk semua tanggal di tahun yang punya ≥ 1 entri di `holidays.csv`.
-- **Kalender turunan:** untuk tahun tanpa entri `holidays.csv` (umumnya riwayat backtest). Tanggal `d` adalah hari bursa jika ≥ `min_hari_kalender_historis_pct` dari saham `breadth_universe` yang bar pertamanya < `d` memiliki bar bervolume > 0 pada `d`. Dihitung dari bar mentah, sebelum validasi.
+- **Kalender turunan:** untuk tahun tanpa entri `holidays.csv` (umumnya riwayat backtest). Tanggal `d` adalah hari bursa jika ≥ `min_hari_kalender_historis_pct` dari saham `breadth_universe` yang bar pertamanya < `d` **dan bar terakhirnya ≥ `d`** memiliki bar bervolume > 0 pada `d`. Saham yang datanya sudah berakhir (delisting, cache belum diperbarui) tidak ikut menilai `d`. Dihitung dari bar mentah, sebelum validasi.
 - `t` tidak pernah ditentukan oleh kalender turunan.
 - `cek` membandingkan kedua kalender untuk tanggal lampau di tahun yang tercakup `holidays.csv`, dan memberi peringatan bila ada ketidakcocokan (libur tercatat yang ternyata ada transaksi, atau sebaliknya).
 - **Keterlambatan:** dinilai bila run terjadi pada tanggal `t+1`.
@@ -1676,7 +1676,7 @@ Jika berkas keluaran terkunci (sedang dibuka di Excel), program menulis ke `<nam
 
 ### 19.2 Perintah CLI
 
-**Opsi global** (semua perintah): `--config PATH` (default `config.yaml` di folder proyek) dan `--akar DIR` (dasar semua path relatif di config).
+**Opsi global** (semua perintah): `--config PATH` (default `config.yaml` di folder kerja; berkas `.bat` selalu menjalankan dari folder proyek, §19.1) dan `--akar DIR` (dasar semua path relatif di config).
 
 | Perintah | Fungsi |
 |---|---|
@@ -1687,13 +1687,15 @@ Jika berkas keluaran terkunci (sedang dibuka di Excel), program menulis ke `<nam
 | `jurnal [--ekspor] [--rekonsiliasi]` | §17 |
 | `uji-telegram [--cari-chat-id]` | §18.3 |
 
+**Semua keluaran terminal**, termasuk `--help`, `--versi`, dan pesan error, memuat "BUKAN SARAN INVESTASI". Bila konsol tidak memakai UTF-8, karakter yang tidak bisa ditampilkan diganti `?` dan program tidak berhenti.
+
 **`cek`** hanya membaca: tidak mengunduh, tidak memegang kunci, dan tidak menulis apa pun kecuali log. Isinya, berurutan:
 1. config (ERROR menghentikan pemeriksaan);
 2. input `input/` (ERROR/PERINGATAN per baris), termasuk tanggal portofolio terhadap kalender dan umur `akun.yaml`;
 3. item **BELUM DIVERIFIKASI** (`pasar.jadwal_sesi`, `pasar.fraksi_harga`, `pasar.auto_reject`, `biaya`, `data.pengali_volume`), beserta sumber dan tanggal berlaku item yang sudah diverifikasi;
 4. `holidays.csv` (tahun berjalan/berikutnya) dan perbandingan kalender manual vs turunan dari cache breadth (dilewati dengan catatan bila cache belum ada);
 5. `holdout_mulai` terhadap baris pertama `holdout_log.csv`;
-6. `.env`;
+6. `.env` (berkas yang bukan teks UTF-8 → ERROR yang menunjuk `.env`);
 7. resolusi rujukan per konteks (live, edge, realistis).
 
 Kode keluar 3 bila ada ERROR, selain itu 0.
@@ -1707,7 +1709,9 @@ TANGGAL harus ≤ `t`. Tanpa bar pada TANGGAL, `cek --silang` mengatakannya, tan
 
 **`unduh`** memegang kunci (§19.3) dan memperbarui cache provider jaringan untuk semua simbol §8.2. `--simbol` membatasi ke kode tertentu; `IHSG` boleh disebut. Sesudahnya `unduh`:
 - menulis berkas kualitas `output/kualitas/<YYYYMMDD-HHMMSS>_unduh.csv`, dinilai as-of `t` (§8.6) atas seri terpilih §8.2;
-- mencetak ringkasan: jumlah per `status_ambil`, simbol yang gagal beserta pesan aslinya, catatan unduh ulang penuh, serta peringatan blokir Yahoo dan saran versi yfinance (≥ 90% `FORMAT`).
+- mencetak ringkasan: jumlah per `status_ambil`; setiap simbol yang unduhannya gagal beserta pesan aslinya, termasuk yang tertolong cadangan; setiap seri yang tidak OK beserta bar terakhirnya; setiap unduh ulang penuh yang tidak diminta beserta alasannya (split belum disesuaikan, revisi, split baru); peringatan blokir Yahoo; dan saran versi yfinance (≥ 90% `FORMAT`).
+- Kolom `pesan` berkas kualitas memuat pesan error asli dan catatan pembaruan run itu (revisi volume, unduh ulang penuh dan alasannya, bar yang dihapus) serta catatan sumber (cadangan, tanpa berkas split).
+- Log mencatat setiap langkah beserta durasinya, dan sumber terpilih per simbol.
 
 Kegagalan per simbol tidak mengubah kode keluar: 0, kecuali config/input tidak valid (3), kunci dipegang (5), atau error tak terduga (1).
 

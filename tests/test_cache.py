@@ -577,17 +577,20 @@ def test_tidak_ada_data_tidak_dicoba_lagi_sebelum_n_hari(cache):
     assert "2026-10-15" in h2.pesan
     assert len(pasar.panggilan) == 1
 
-    # Tepat 7 hari: dicoba lagi. Masih gagal → tanggal "sejak" tidak berubah.
+    # Tepat 7 hari: dicoba lagi. Masih gagal → tanggal percobaan terakhir diperbarui (§8.3), jeda berlaku lagi.
     h3 = perbarui(pasar, cache, "2026-10-15 20:00", kode="HILANG")
     assert len(pasar.panggilan) == 2 and not h3.dilewati
-    assert cache.baca("HILANG").meta["tidak_ada_data_sejak"] == "2026-10-08"
+    assert cache.baca("HILANG").meta["tidak_ada_data_sejak"] == "2026-10-15"
+    assert any("2026-10-22" in c for c in h3.catatan)
+    h3b = perbarui(pasar, cache, "2026-10-16 20:00", kode="HILANG")
+    assert h3b.dilewati and len(pasar.panggilan) == 2  # bukan setiap run sesudah jeda pertama
 
     # Data muncul kembali → unduh penuh, penanda dihapus.
     del pasar.gagal["HILANG"]
-    pasar.bar["HILANG"] = pasar_harian("2026-09-01", "2026-10-16")
-    h4 = perbarui(pasar, cache, "2026-10-15 20:00", kode="HILANG")
+    pasar.bar["HILANG"] = pasar_harian("2026-09-01", "2026-10-23")
+    h4 = perbarui(pasar, cache, "2026-10-22 20:00", kode="HILANG")
     assert h4.status == "OK" and h4.unduh_penuh
-    assert pasar.panggilan[-1] == ("HILANG", MULAI_UNDUH, date(2026, 10, 15))
+    assert pasar.panggilan[-1] == ("HILANG", MULAI_UNDUH, date(2026, 10, 22))
     assert cache.baca("HILANG").meta["tidak_ada_data_sejak"] is None
 
 
