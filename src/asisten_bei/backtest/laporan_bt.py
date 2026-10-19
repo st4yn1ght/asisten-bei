@@ -275,12 +275,9 @@ def baris_transaksi(rm: RunMode, lap: LaporanBacktest) -> pd.DataFrame:
     for pos in rm.hasil.transaksi:
         k = pos.keluar
         if k is None:
-            k = ex.tutup_terbuka(pos, akhir, cfg)
-            tgl_exit = akhir
-            exit_nom = k.harga * lap.faktor(pos.kode, akhir)
-        else:
-            tgl_exit = k.tanggal
-            exit_nom = k.harga_nominal
+            k = ex.tutup_terbuka(pos, akhir, cfg, lap.faktor(pos.kode, akhir))
+        tgl_exit = k.tanggal
+        exit_nom = k.harga_nominal
         f = pos.faktor_entry
         baris.append({
             "kode": pos.kode,

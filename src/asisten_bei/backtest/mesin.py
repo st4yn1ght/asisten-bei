@@ -272,9 +272,10 @@ def simulasikan(
         ekuitas = kas + nilai
         status_pasar = kh.status_pasar
         ekuitas_rows.append(BarisEkuitas(d, kas, nilai, ekuitas, len(posisi), perkiraan, status_pasar))
-        if d in nilai_pada:
+        if d in nilai_pada:  # penilaian akhir in-sample (§16.4): nilai dan tanda pada hari itu
             for pos in posisi:
                 pos.meta.setdefault("nilai_pada", {})[d] = pos.nilai()
+                pos.meta.setdefault("tanda_pada", {})[d] = frozenset(pos.tanda)
         # 6. Langkah 7: trailing & jadwal jual berbasis close.
         for pos in posisi:
             ex.tutup(pos, bar(pos.kode), dv, cfg, bei, kal, status_pasar)
@@ -378,6 +379,7 @@ def jalur_per_sinyal(
     hasil: list[JalurSinyal] = []
     tertunda: list[tuple[ex.Order, JalurSinyal]] = []
     terbuka: list[tuple[ex.Posisi, JalurSinyal]] = []
+    unit: list[tuple[ex.Posisi, JalurSinyal]] = []  # semua unit yang terisi
     for kh in keputusan:
         d = kh.tanggal
         dv = pasar.tampilan(d)
@@ -392,8 +394,8 @@ def jalur_per_sinyal(
             k = pos.keluar
             j.tanggal_exit, j.alasan_exit, j.r = k.tanggal, k.alasan, k.r
             j.hari = kal.nomor_hari(pos.tanggal_entry, k.tanggal)
-            j.tanda = tuple(t for t in ex.URUTAN_TANDA if t in pos.tanda)
 
+        aktif_hari_ini = [pos for pos, _j in terbuka]  # untuk tanda, seperti simulasikan
         lanjut = []
         for pos, j in terbuka:
             if ex.buka(pos, bar(pos.kode), cfg, bei, kal) is not None:
@@ -409,6 +411,8 @@ def jalur_per_sinyal(
                 continue
             pos = ex.isi_order(order, b, cfg, bei)
             j.tanggal_entry = d
+            unit.append((pos, j))
+            aktif_hari_ini.append(pos)
             if ex.keluar_hari_entry(pos, b, cfg, bei) is not None:
                 selesai(pos, j)
                 continue
@@ -420,10 +424,14 @@ def jalur_per_sinyal(
             if ex.intraday(pos, b, cfg, hari_entry=(pos.tanggal_entry == d)) is not None:
                 selesai(pos, j)
                 continue
-            ex.perbarui_nilai(pos, b)
-            ex.tutup(pos, b, dv, cfg, bei, kal, kh.status_pasar)
             lanjut.append((pos, j))
         terbuka = lanjut
+        for pos in aktif_hari_ini:
+            _tandai(pos, bar(pos.kode), dv)
+        for pos, _j in terbuka:
+            b = bar(pos.kode)
+            ex.perbarui_nilai(pos, b)
+            ex.tutup(pos, b, dv, cfg, bei, kal, kh.status_pasar)
         for s in kh.sinyal:
             if s.strategi != strategi or not s.sinyal.valid:
                 continue
@@ -435,9 +443,14 @@ def jalur_per_sinyal(
             tertunda.append((order, j))
     for _order_t, j in tertunda:
         j.status_isi = MENUNGGU
-    for pos, j in terbuka:  # masih terbuka di akhir: dinilai pada close valid terakhir
-        k = ex.tutup_terbuka(pos, keputusan[-1].tanggal, cfg)
-        j.alasan_exit, j.r = ex.TERBUKA, k.r
+    if keputusan:
+        akhir = keputusan[-1].tanggal
+        dv = pasar.tampilan(akhir)
+        for pos, j in terbuka:  # masih terbuka di akhir: dinilai pada close valid terakhir (seperti transaksi_*)
+            k = ex.tutup_terbuka(pos, akhir, cfg, ex._f(dv.faktor_split(pos.kode)))
+            j.tanggal_exit, j.alasan_exit, j.r = akhir, ex.TERBUKA, k.r
+            j.hari = kal.nomor_hari(pos.tanggal_entry, akhir)
+    for pos, j in unit:
         j.tanda = tuple(t for t in ex.URUTAN_TANDA if t in pos.tanda)
     return hasil
 

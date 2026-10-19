@@ -1112,15 +1112,6 @@ def test_arb_terkunci_di_hari_entry_jual_tertunda_dieksekusi_di_open_berikutnya(
     assert k.pnl_idr == hasil_jual(100, "959.04") - biaya_beli(100, "870.87")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BUG: exit.buka langkah 1 hanya memberi tanda TERTUNDA_ARB untuk stop yang terlewati pada bar terkunci ARB, "
-        "tetapi tidak menjadwalkan jualnya; bila open berikutnya kembali di atas stop, jual tidak pernah terjadi "
-        "(§15.1 langkah 1: 'Semua jual ... ditunda ke hari berikutnya'; hari entry: 'jual ditunda seperti biasa', "
-        "dan keluar_hari_entry memang menjadwalkannya)"
-    ),
-)
 def test_arb_terkunci_posisi_lama_jual_stop_tertunda_dieksekusi_di_open_berikutnya():
     # E+1 terkunci ARB di 870 ≤ stop 950: jual stop (gap) tidak dapat dieksekusi dan DITUNDA ke E+2. E+2 open 960
     # (> stop, low 955 > stop) → jual yang tertunda dieksekusi di open E+2: 960 × 0,999 = 959,04, label asli
@@ -1308,8 +1299,8 @@ def test_tutup_terbuka_menilai_pada_close_valid_terakhir_tanpa_mengubah_posisi()
     # "P&L" = 101.000 − 100.250,15 = 749,85. Posisi tidak ditutup.
     pp, od = pb_dasar((1000, 1015, 995, 1010), None)
     j = jalankan(pp, od, E0, E0 + 2)
-    k = ex.tutup_terbuka(j.pos, tgl(E0 + 2), pp.cfg)
-    assert k.alasan == ex.TERBUKA and k.harga == D("1010") and k.fee_jual_idr == 0
+    k = ex.tutup_terbuka(j.pos, tgl(E0 + 2), pp.cfg, D(1))
+    assert k.alasan == ex.TERBUKA and k.harga == D("1010") and k.harga_nominal == D("1010") and k.fee_jual_idr == 0
     assert k.nilai_idr == D("101000")
     assert k.pnl_idr == D("749.85") and k.r == D("749.85") / RISIKO_DASAR
     assert j.pos.terbuka and j.pos.keluar is None

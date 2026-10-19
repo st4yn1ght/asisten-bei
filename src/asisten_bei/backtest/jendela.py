@@ -175,7 +175,9 @@ def _tampilan(
             tertutup.append(p)
         else:
             nilai = _nilai_pada(p, batas_tutup, akhir_data)
-            terbuka.append(mt.transaksi_terbuka(p, batas_tutup, nilai, tanda_terbuka))
+            # Tanda yang didapat sesudah batas_tutup (mis. ANOMALI di holdout) tidak ikut statistik periode ini.
+            dasar = None if batas_tutup == akhir_data else p.meta.get("tanda_pada", {}).get(batas_tutup)
+            terbuka.append(mt.transaksi_terbuka(p, batas_tutup, nilai, tanda_terbuka, dasar))
     dilewati = tuple(s for s in hasil.dilewati if periode.mulai <= s.tanggal <= periode.akhir)
     akhir_ekuitas = min(periode.akhir, batas_tutup)
     return TampilanPeriode(

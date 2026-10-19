@@ -226,13 +226,15 @@ def _tutup(
     return k
 
 
-def tutup_terbuka(pos: Posisi, tanggal: date, cfg: "Config") -> Keluar:
+def tutup_terbuka(pos: Posisi, tanggal: date, cfg: "Config", faktor: Decimal) -> Keluar:
     """Penilaian posisi yang masih terbuka (`TERBUKA`): nilai pada close valid terakhir, tanpa fee jual —
-    "P&L" = nilai − biaya beli (§16.9 identitas akuntansi). Posisi TIDAK diubah."""
+    "P&L" = nilai − biaya beli (§16.9 identitas akuntansi). `faktor` = F(tanggal) untuk harga nominal.
+    Posisi TIDAK diubah."""
     harga = pos.close_valid_terakhir if pos.close_valid_terakhir is not None else pos.harga_beli
     nilai = pos.lembar * harga
     pnl = nilai - pos.biaya_beli_idr
-    return Keluar(tanggal, TERBUKA, harga, harga, nilai, Decimal(0), nilai, pnl, pnl / pos.risiko_awal_idr)
+    return Keluar(tanggal, TERBUKA, harga, harga * faktor, nilai, Decimal(0), nilai, pnl,
+                  pnl / pos.risiko_awal_idr)
 
 
 # ---------------------------------------------------------------------------
@@ -359,9 +361,13 @@ def buka(pos: Posisi, bar: BarHari, cfg: "Config", bei: AturanBEI, kal: "Kalende
             harga = (pos.close_valid_terakhir or pos.harga_beli) * potong
             return _tutup(pos, d, DATA_BERAKHIR, harga, bar.faktor, cfg)
         return None
-    # 1. Bar terkunci ARB → semua jual hari ini ditunda.
+    # 1. Bar terkunci ARB → semua jual hari ini ditunda. Stop yang terlewati dijadwalkan di open bar valid
+    #    berikutnya dengan label gap-nya (bar terkunci datar: open = low).
     if terkunci_arb(bar, bei):
-        if pos.jual_terjadwal is not None or bar.open <= pos.stop or bar.low <= pos.stop:
+        if pos.jual_terjadwal is None and (bar.open <= pos.stop or bar.low <= pos.stop):
+            pos.jual_terjadwal = pos.label_gap
+            pos.tanggal_jadwal = d
+        if pos.jual_terjadwal is not None:
             pos.tanda.add(TERTUNDA_ARB)
         pos.meta["_terkunci_arb"] = d
         return None

@@ -47,8 +47,6 @@ WAKTU_UJI = "2026-10-15T20:00:00+07:00"
 TOKEN_PALSU = "123456789:FIKTIF_tokenUjiMain_qwertyZXCV"
 EKOR_TOKEN = "FIKTIF_tokenUjiMain_qwertyZXCV"  # bagian token yang tidak boleh muncul walau sebagian
 PERINTAH_TAHAP_BERIKUT = [
-    ("backtest",),
-    ("backtest", "--strategi", "pb", "--mode", "edge"),
     ("harian",),
     ("harian", "--offline", "--tanggal", "2026-10-15", "--tanpa-notifikasi", "--catat"),
     ("harian", "--jadwal"),
@@ -369,9 +367,10 @@ def test_perintah_tahap_berikut_belum_tersedia_kode_1(proyek, perintah):
         lambda p: [*p.umum(), "cek", "--tidak-ada"],
         lambda p: [],
         lambda p: ["--config", str(p.konfig / "tidak_ada.yaml"), "cek"],
+        lambda p: [*p.umum(), "harian"],
         lambda p: [*p.umum(), "backtest"],
     ],
-    ids=["cek_valid", "opsi_salah", "tanpa_perintah", "config_hilang", "belum_tersedia"],
+    ids=["cek_valid", "opsi_salah", "tanpa_perintah", "config_hilang", "belum_tersedia", "backtest_tanpa_data"],
 )
 def test_penyaring_rahasia_dipasang_sebelum_apa_pun(proyek, monkeypatch, argv_fn):
     kejadian: list[str] = []
@@ -496,9 +495,10 @@ def test_proses_sungguhan_cek_kode_0_dengan_disclaimer(akar_uji, tmp_path_factor
         ([], 3),
         (["hapus"], 3),
         (["cek", "--tidak-ada"], 3),
-        (["backtest"], 1),
+        (["harian"], 1),
+        (["backtest"], 2),  # tanpa cache: data belum tersedia (§20.1)
     ],
-    ids=["help", "tanpa_perintah", "perintah_asing", "opsi_salah", "belum_tersedia"],
+    ids=["help", "tanpa_perintah", "perintah_asing", "opsi_salah", "belum_tersedia", "backtest_tanpa_data"],
 )
 def test_proses_sungguhan_kode_keluar(akar_uji, tmp_path_factory, argv, kode):
     kerja = tmp_path_factory.mktemp("kerja_proses")

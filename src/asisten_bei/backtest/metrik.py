@@ -421,10 +421,18 @@ class TransaksiTerbuka:
     tanda: frozenset[str]  # tanda posisi ∪ tanda tampilan periode (mis. MELEWATI_HOLDOUT)
 
 
-def transaksi_terbuka(pos: ex.Posisi, tanggal: date, nilai: Decimal, tanda_tambahan: Iterable[str] = ()) -> TransaksiTerbuka:
+def transaksi_terbuka(
+    pos: ex.Posisi,
+    tanggal: date,
+    nilai: Decimal,
+    tanda_tambahan: Iterable[str] = (),
+    tanda_dasar: Iterable[str] | None = None,
+) -> TransaksiTerbuka:
+    """`tanda_dasar`: tanda posisi pada `tanggal` (None = `pos.tanda` saat ini)."""
     nilai = _d(nilai)
     pnl = nilai - pos.biaya_beli_idr
-    return TransaksiTerbuka(pos, tanggal, nilai, pnl, pnl / pos.risiko_awal_idr, frozenset(pos.tanda) | set(tanda_tambahan))
+    dasar = frozenset(pos.tanda if tanda_dasar is None else tanda_dasar)
+    return TransaksiTerbuka(pos, tanggal, nilai, pnl, pnl / pos.risiko_awal_idr, dasar | set(tanda_tambahan))
 
 
 def urut_exit(transaksi: Iterable[ex.Posisi]) -> list[ex.Posisi]:

@@ -608,12 +608,10 @@ def test_split_fiktif_harga_dan_lembar_nominal_lewat_cli(tmp_path):
             assert b["harga_beli_nominal"] == b["harga_beli"] and int(b["lembar"]) % 100 == 0
 
 
-@pytest.mark.xfail(strict=True, reason="BUG: exit.tutup_terbuka mengisi Keluar.harga_nominal dengan harga tersesuaikan "
-                                       "(tanpa × F); laporan_bt menghitung harga exit nominal TERBUKA sendiri")
 def test_tutup_terbuka_harga_nominal_pada_tanggal_penilaian():
     """§16.1: harga exit nominal = harga pada tanggal exit × F(tanggal). Posisi FIKTIF tanpa split antara entry dan
     tanggal penilaian (F = 5 di kedua tanggal): close valid terakhir 420 (adj) → nominal 2.100."""
     pos = _posisi_split(keluar=False)
-    k = ex.tutup_terbuka(pos, date(2025, 1, 10), cfg_uji())
+    k = ex.tutup_terbuka(pos, date(2025, 1, 10), cfg_uji(), D(5))
     assert k.harga == D(420)
     assert k.harga_nominal == D(2100)

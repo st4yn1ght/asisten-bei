@@ -489,6 +489,19 @@ def test_terbuka_pada_akhir_insample_dinilai_close_hari_itu_dan_melewati_holdout
     assert ex.MELEWATI_HOLDOUT in pos["T3"].tanda
 
 
+def test_tanda_terbuka_insample_memakai_tanda_pada_akhir_insample():
+    """Tanda yang didapat sesudah akhir in-sample (mis. ANOMALI di holdout) tidak ikut statistik in-sample;
+    periode penuh/holdout memakai tanda akhir run."""
+    h, pos = _hasil_periode()
+    pos["T3"].meta["tanda_pada"] = {date(2024, 2, 29): frozenset()}
+    pos["T3"].tanda.add(ex.ANOMALI)  # terjadi 2024-03-04, di holdout
+    pb = jd.bagi_periode(h, CFG_PERIODE)
+    (t3,) = pb.in_sample.terbuka
+    assert t3.tanda == {ex.MELEWATI_HOLDOUT}
+    assert mt.metrik_transaksi(pb.in_sample.tertutup, KAL, terbuka=pb.in_sample.terbuka).per_tanda[ex.ANOMALI] == 0
+    assert mt.metrik_transaksi(pb.penuh.tertutup, KAL, terbuka=pb.penuh.terbuka).per_tanda[ex.ANOMALI] == 1
+
+
 def test_nilai_pada_akhir_insample_wajib_dicatat_mesin():
     h, pos = _hasil_periode()
     pos["T3"].meta.pop("nilai_pada")

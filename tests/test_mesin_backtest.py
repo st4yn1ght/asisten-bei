@@ -308,7 +308,7 @@ def test_bentuk_pembanding_peka():
                   D("150"), D(950), D(950), None, D(1), D(1010), D(1), tanda={"ANOMALI"}, meta={"x": math.nan})
     assert bentuk(p) == bentuk(copy.deepcopy(p))
     for ubah in ({"lembar": D(101)}, {"stop": D("950.0")}, {"tanda": set()}, {"meta": {"x": 1.0}},
-                 {"keluar": ex.tutup_terbuka(p, date(2024, 1, 4), CFG)}):
+                 {"keluar": ex.tutup_terbuka(p, date(2024, 1, 4), CFG, D(1))}):
         assert bentuk(dataclasses.replace(p, **ubah)) != bentuk(p), ubah
 
 
@@ -856,6 +856,8 @@ def test_t_bt_nilai_pada_tanggal_penilaian_dan_melewati_holdout():
             catat = p.meta.get("nilai_pada", {})
             assert (d_is in catat) == buka, (run, mode, p.kode, p.tanggal_entry)
             assert set(catat) <= {d_is}
+            assert set(p.meta.get("tanda_pada", {})) == set(catat)  # tanda dicatat bersama nilai
+            assert all(t <= p.tanda for t in p.meta.get("tanda_pada", {}).values())
             if buka:
                 ada += 1
                 assert catat[d_is] == p.lembar * cv.pada(p.kode, d_is)
@@ -871,11 +873,12 @@ def test_t_bt_nilai_pada_tanggal_penilaian_dan_melewati_holdout():
 
 def test_t_bt_tanpa_tanggal_penilaian_tidak_ada_nilai_pada():
     rek = simulasi(keputusan_dasar(), pasar_dasar(), RUN["acak"], "edge", tanggal_penilaian=())
-    assert not any("nilai_pada" in p.meta for p in rek.hasil.transaksi)
-    # Selain catatan nilai_pada, hasilnya identik dengan run yang mencatat.
+    assert not any("nilai_pada" in p.meta or "tanda_pada" in p.meta for p in rek.hasil.transaksi)
+    # Selain catatan nilai_pada/tanda_pada, hasilnya identik dengan run yang mencatat.
     asli = copy.deepcopy(semua_run()[("acak", "edge")].hasil)
     for p in asli.transaksi:
         p.meta.pop("nilai_pada", None)
+        p.meta.pop("tanda_pada", None)
     assert bentuk(rek.hasil) == bentuk(asli)
 
 
@@ -1173,10 +1176,9 @@ def test_jalur_satu_unit_per_sinyal_tanpa_stop_terlalu_jauh(strategi):
             continue
         assert u.tanggal_entry == _hari_sesudah(u.tanggal_sinyal)
         assert u.alasan_exit in ENUM_ALASAN_EXIT and u.r is not None and set(u.tanda) <= ENUM_TANDA
-        if u.alasan_exit == ex.TERBUKA:
-            assert u.tanggal_exit is None and u.hari is None
-        else:
-            assert u.tanggal_exit >= u.tanggal_entry and u.hari == KAL.nomor_hari(u.tanggal_entry, u.tanggal_exit)
+        if u.alasan_exit == ex.TERBUKA:  # seperti transaksi_*: tanggal_exit = akhir data (§16.1, §16.7)
+            assert u.tanggal_exit == akhir
+        assert u.tanggal_exit >= u.tanggal_entry and u.hari == KAL.nomor_hari(u.tanggal_entry, u.tanggal_exit)
     assert any(u.tanggal_sinyal == akhir for u in j) or not any(
         s.strategi == strategi and s.sinyal.valid for s in kep[-1].sinyal)
 
@@ -1214,7 +1216,8 @@ def test_jalur_r_unit_sama_dengan_r_posisi_portofolio(strategi):
         assert (u.status_isi, u.tanggal_entry) == (ex.TERISI, p.tanggal_entry)
         assert u.tanda == tuple(t for t in ex.URUTAN_TANDA if t in p.tanda)
         if p.keluar is None:
-            assert u.alasan_exit == ex.TERBUKA and u.r == ex.tutup_terbuka(p, akhir, CFG).r
+            assert u.alasan_exit == ex.TERBUKA and u.r == ex.tutup_terbuka(p, akhir, CFG, D(1)).r
+            assert (u.tanggal_exit, u.hari) == (akhir, KAL.nomor_hari(p.tanggal_entry, akhir))
         else:
             assert (u.tanggal_exit, u.alasan_exit, u.r) == (p.keluar.tanggal, p.keluar.alasan, p.keluar.r)
 
@@ -1234,12 +1237,6 @@ def test_jalur_fee_minimum_dan_pembulatan_fee_diabaikan():
     assert cfg_unit.biaya.fee_beli_pct == cfg_fee.biaya.fee_beli_pct
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BUG: mesin.jalur_per_sinyal tidak memanggil _tandai, sehingga unit yang terbuka saat anomali tidak "
-    "bertanda ANOMALI (dan bar CSV manual tidak bertanda SUMBER_MANUAL), padahal posisi yang sama di "
-    "simulasikan bertanda (§8.5, §16.1 kolom tanda_transaksi sinyal_r_*, §16.7)",
-)
 def test_jalur_unit_yang_terbuka_saat_anomali_bertanda_anomali():
     """§8.5: posisi yang terbuka saat anomali diberi tanda ANOMALI; unit jalur per sinyal disimulasikan
     dengan §15.1 yang sama (§16.7) dan `sinyal_r_*` punya kolom `tanda_transaksi` (§16.1)."""
@@ -1365,8 +1362,9 @@ def bandingkan_run_penuh_sampai_t(t: date, a: Rekaman, b: Rekaman) -> list[str]:
                             [r for r in b.hasil.ekuitas if r.tanggal <= t])
 
     def bagian_entry(p: ex.Posisi):
-        meta = {k: v for k, v in p.meta.items() if k != "nilai_pada"}
-        meta["nilai_pada"] = {d: v for d, v in p.meta.get("nilai_pada", {}).items() if d <= t}
+        meta = {k: v for k, v in p.meta.items() if k not in ("nilai_pada", "tanda_pada")}
+        for kunci in ("nilai_pada", "tanda_pada"):  # penilaian sesudah t boleh berbeda
+            meta[kunci] = {d: v for d, v in p.meta.get(kunci, {}).items() if d <= t}
         return (p.kode, p.strategi, p.sektor, p.tanggal_sinyal, p.tanggal_entry, p.lembar, p.harga_beli,
                 p.biaya_beli_idr, p.fee_beli_idr, p.stop_awal, p.target, p.risiko_awal_idr, p.harga_maks,
                 p.faktor_entry, p.slippage_beli_idr, meta)
