@@ -17,7 +17,6 @@ from collections.abc import Callable, Sequence
 from . import DISCLAIMER, DISCLAIMER_SINGKAT, __version__, operasional
 
 PERINTAH_BELUM_TERSEDIA = {
-    "backtest": "tahap 5",
     "harian": "tahap 6",
     "jurnal": "tahap 6",
     "uji-telegram": "tahap 7",
@@ -58,8 +57,9 @@ def buat_parser() -> argparse.ArgumentParser:
     unduh.add_argument("--simbol", metavar="K1,K2", help="hanya simbol ini (pisahkan dengan koma)")
 
     bt = tambah("backtest", "backtest (§16)")
-    bt.add_argument("--strategi")
-    bt.add_argument("--mode")
+    bt.add_argument("--strategi", metavar="pb,bo,mr,acak",
+                    help="hanya run strategi ini (default: semua, ditambah run gabungan_aktif dan gabungan_lolos)")
+    bt.add_argument("--mode", metavar="edge,realistis", help="hanya mode ini (default: semua)")
     h = tambah("harian", "run harian (§18)")
     for opsi in ("--jadwal", "--offline", "--tanpa-notifikasi", "--catat", "--catat-ulang"):
         h.add_argument(opsi, action="store_true")
@@ -92,6 +92,18 @@ def _jalankan(args: argparse.Namespace, keluar: Callable[[str], None]) -> int:
             except ValueError as e:
                 raise KesalahanArgumen(f"--simbol: {e}") from None
             return jalankan_unduh(ctx, penuh=args.penuh, simbol=simbol, keluar=keluar).kode_keluar
+        if args.perintah == "backtest":
+            from .backtest.jalankan import jalankan_backtest, parse_daftar_mode, parse_daftar_strategi
+
+            try:
+                strategi = parse_daftar_strategi(args.strategi) if args.strategi is not None else None
+            except ValueError as e:
+                raise KesalahanArgumen(f"--strategi: {e}") from None
+            try:
+                mode = parse_daftar_mode(args.mode) if args.mode is not None else None
+            except ValueError as e:
+                raise KesalahanArgumen(f"--mode: {e}") from None
+            return jalankan_backtest(ctx, strategi=strategi, mode=mode, keluar=keluar).kode_keluar
         tahap = PERINTAH_BELUM_TERSEDIA[args.perintah]
         keluar(f"Perintah {args.perintah} belum tersedia pada versi ini (dikerjakan pada {tahap}, SPEC §23).")
         keluar("")

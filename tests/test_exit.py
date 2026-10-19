@@ -1324,6 +1324,16 @@ def test_paksa_jual_pasar_hanya_saat_jangan_beli():
     cek_keluar(j.keluar, tanggal=tgl(E0 + 2), alasan=ex.PAKSA_JUAL_PASAR, harga="999")
 
 
+def test_paksa_jual_tidak_dijadwalkan_pada_hari_tanpa_bar_valid():
+    # §15.1 langkah 0: tanpa bar valid tidak ada langkah lain ("lanjut ke posisi berikutnya"), termasuk langkah 7.
+    # JANGAN BELI hanya pada E+1 yang tidak punya bar → tidak ada jadwal; E+2 (BOLEH BELI) juga tidak.
+    cfg = cfg_uji({"kondisi_pasar.jangan_beli_paksa_jual": True})
+    pp, od = pb_dasar(None, NORMAL, NORMAL, cfg=cfg)
+    j = jalankan(pp, od, E0, E0 + 3, status=lambda d: JANGAN_BELI if d == tgl(E0 + 1) else BOLEH_BELI)
+    assert j.jadwal[tgl(E0 + 1)] is None and j.jadwal[tgl(E0 + 2)] is None
+    assert j.keluar is None and j.pos.tanda == set()
+
+
 # =====================================================================================================
 # T-SP bagian mesin: posisi melewati split 1:5 (§8.4)
 # =====================================================================================================
