@@ -1569,18 +1569,75 @@ def test_sektor_kontrol_jual_terisi_order_terisi():
 
 
 @pytest.mark.parametrize(
-    ("b_open", "status"),
+    ("b_open", "harga_maks", "status"),
     [
-        pytest.param(None, ex.BATAL_DATA, id="data-sebelum-slot"),
-        pytest.param((1060, 1070, 1050, 1060), ex.BATAL_GAP, id="gap-sebelum-slot"),
+        pytest.param(None, "1050", ex.BATAL_DATA, id="data-sebelum-slot"),
+        pytest.param((1060, 1070, 1050, 1060), "1050", ex.BATAL_GAP, id="gap-sebelum-slot"),
+        # ARA FIKTIF: close B kemarin 1.000 → batas 1.110; harga_maks 1.120 agar bukan BATAL_GAP.
+        pytest.param(ARA_TERKUNCI, "1120", ex.BATAL_ARA, id="ara-sebelum-slot"),
     ],
 )
-def test_pembatalan_data_dan_gap_didahulukan_dari_slot(b_open, status):
+def test_pembatalan_data_gap_ara_didahulukan_dari_slot(b_open, harga_maks, status):
     cfg = _cfg_tunda(**{"risiko.maks_posisi": 1})
     pp = buat_pasar(_data_tunda("hilang", b_open), cfg)
-    h = sim(pp, {S0: [sinyal(KODE)], I_JADWAL: [sinyal(KODE_B, i=I_JADWAL)]}, I0, I_OPEN + 1)
+    h = sim(pp, {S0: [sinyal(KODE)], I_JADWAL: [sinyal(KODE_B, i=I_JADWAL, harga_maks=harga_maks)]}, I0, I_OPEN + 1)
     (b,) = dilewati(h, KODE_B)
     assert b.status_isi == status
+
+
+def test_slot_didahulukan_dari_sektor_saat_open():
+    # maks_posisi 1 dan maks_per_sektor 1, A dan B satu sektor, jual A tertunda → keduanya penuh → slot lebih dulu.
+    cfg = _cfg_tunda(**{"risiko.maks_posisi": 1})
+    pp = buat_pasar(_data_tunda("hilang"), cfg)
+    sektor = {KODE: SEKTOR_1, KODE_B: SEKTOR_1}
+    h = sim(pp, {S0: [sinyal(KODE)], I_JADWAL: [sinyal(KODE_B, i=I_JADWAL)]}, I0, I_OPEN + 1, sektor=sektor)
+    (b,) = dilewati(h, KODE_B)
+    assert b.status_isi == BATAL_SLOT_SAAT_OPEN
+
+
+KODE_C = "ZXQC"  # fiktif
+SEKTOR_3 = "SEKTOR_FIKTIF_3"
+
+
+def test_order_di_open_diproses_berurutan_sesuai_skor():
+    # maks_posisi 2: A dipegang (jual terjadwal), sehingga pada close I_JADWAL slot = 2 − (1 − 1) = 2 → B dan C
+    # sama-sama REKOMENDASI. Open I_OPEN: jual A tertunda → tinggal 1 slot. C (skor 80) diproses lebih dulu dari
+    # B (skor 60) walau kodenya sesudah B → C terisi, B BATAL_SLOT_SAAT_OPEN.
+    cfg = _cfg_tunda(**{"risiko.maks_posisi": 2})
+    data = _data_tunda("hilang")
+    data[KODE_C] = list(data[KODE_B])
+    pp = buat_pasar(data, cfg)
+    sektor = {KODE: SEKTOR_1, KODE_B: SEKTOR_2, KODE_C: SEKTOR_3}
+    per_hari = {
+        S0: [sinyal(KODE)],
+        I_JADWAL: [sinyal(KODE_B, i=I_JADWAL, skor=60.0), sinyal(KODE_C, i=I_JADWAL, skor=80.0)],
+    }
+    h = sim(pp, per_hari, I0, I_OPEN + 1, sektor=sektor)
+    (b,) = dilewati(h, KODE_B)
+    assert (b.status_sinyal, b.status_isi) == (REKOMENDASI, BATAL_SLOT_SAAT_OPEN)
+    assert not dilewati(h, KODE_C)
+    assert next(p for p in h.transaksi if p.kode == KODE_C).tanggal_entry == tgl(I_OPEN)
+    _cek_a_tertunda(h, ex.TERTUNDA_TANPA_TRANSAKSI)
+
+
+@pytest.mark.parametrize(
+    ("bar_entry", "tanda"),
+    [
+        # Close E melonjak 45 % (> lonjakan_mencurigakan_pct 40) → anomali as-of E, tetapi open E sah.
+        pytest.param((1000, 1500, 990, 1450), {ex.ANOMALI}, id="anomali-pada-close-entry"),
+        # Volume 1 lembar: likuiditas rendah dievaluasi pada close, bukan alasan batal di open.
+        pytest.param((1000, 1010, 990, 1000, 1), set(), id="volume-sangat-kecil"),
+    ],
+)
+def test_aturan_berbasis_close_tidak_membatalkan_order_di_open(bar_entry, tanda):
+    # §16.2: pembatalan di open hanya memakai fakta ketersediaan transaksi dan harga open. MR (tanpa target) agar
+    # high 1.500 tidak memicu target; isi = min(1.000 × 1,001; 1.050) = 1.001.
+    pp = buat_pasar({KODE: [*AWAL, bar_entry]})
+    h = sim(pp, {S0: [sinyal(KODE, strategi="MR")]}, I0, E0, strategi="MR")
+    assert not dilewati(h, KODE)
+    (p,) = h.transaksi
+    assert p.tanggal_entry == tgl(E0) and p.harga_beli == D("1001") and p.terbuka
+    assert p.tanda == tanda
 
 
 # --- BATAL_KAS_SAAT_OPEN ------------------------------------------------------------------------------
@@ -1626,6 +1683,14 @@ def test_batal_kas_saat_open_karena_jual_terjadwal_tertunda(jenis, tanda):
     assert pa.biaya_beli_idr == D("100150")
     assert tanda in pa.tanda
     assert all(r.kas >= 0 for r in h.ekuitas)
+
+
+def test_sektor_didahulukan_dari_kas_saat_open():
+    # Skenario kas di atas, tetapi A dan B satu sektor: jual A tertunda → sektor penuh dan kas kurang → sektor dulu.
+    pp = buat_pasar(_data_kas("hilang"), _cfg_kas())
+    h = sim(pp, _sinyal_kas(), I0, I_OPEN + 1, sektor={KODE: SEKTOR_1, KODE_B: SEKTOR_1})
+    (b,) = dilewati(h, KODE_B)
+    assert (b.status_sinyal, b.status_isi) == (REKOMENDASI, BATAL_SEKTOR_SAAT_OPEN)
 
 
 def test_kas_kontrol_hasil_jual_open_membiayai_beli():
