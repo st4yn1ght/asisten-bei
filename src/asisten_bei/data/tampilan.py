@@ -16,7 +16,7 @@ bar rusak, dan hari tanpa bar tidak dihitung.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
@@ -103,6 +103,24 @@ class _Kunci:
     indikator: np.ndarray
     tanda: np.ndarray
     split: np.ndarray
+    # Kolom indikator numerik sebagai array float64 baca-saja, diisi saat pertama dipakai `sebelum`
+    # (akses per posisi lewat pandas jauh lebih lambat; isi kolom tidak berubah selama run).
+    _kolom: dict[str, np.ndarray | None] = field(default_factory=dict, compare=False, repr=False)
+    # Baris indikator terakhir yang diminta `baris` ([posisi, Series]): eligibilitas dan semua strategi
+    # membaca baris yang sama pada hari yang sama. Pemanggil hanya membaca baris itu.
+    _baris: list = field(default_factory=lambda: [-1, None], compare=False, repr=False)
+
+    def kolom_indikator(self, ds: DataSaham, kolom: str) -> np.ndarray | None:
+        """Array kolom indikator, atau None bila kolom tidak bisa diubah ke float64 apa adanya
+        (pemanggil memakai jalur pandas). KeyError bila kolom tidak ada."""
+        if kolom in self._kolom:
+            return self._kolom[kolom]
+        seri = ds.indikator[kolom]
+        arr = seri.to_numpy(dtype="float64", copy=True) if seri.dtype.kind in "fiu" else None
+        if arr is not None:
+            arr.setflags(write=False)
+        self._kolom[kolom] = arr
+        return arr
 
     @classmethod
     def dari(cls, ds: DataSaham) -> "_Kunci":
@@ -253,7 +271,10 @@ class TampilanSeri:
         n = self._jumlah("indikator")
         pos = int(np.searchsorted(kunci[:n], ns, side="left"))
         if pos < n and kunci[pos] == ns:
-            return self._ds.indikator.iloc[pos]
+            simpan = self._kunci._baris
+            if simpan[0] != pos:
+                simpan[0], simpan[1] = pos, self._ds.indikator.iloc[pos]
+            return simpan[1]
         return None
 
     def sebelum(self, kolom: str, k: int) -> float:
@@ -264,16 +285,17 @@ class TampilanSeri:
             raise TypeError(f"k harus bilangan bulat (nilai: {k!r})")
         if k < 0:
             raise LookAheadError(f"akses look-ahead ditolak: {self.kode} {kolom} bar ke-{k} (k < 0)")
-        nilai = self._ds.indikator[kolom]  # KeyError bila kolom tidak ada
+        arr = self._kunci.kolom_indikator(self._ds, kolom)  # KeyError bila kolom tidak ada
+        nilai = self._ds.indikator[kolom].iloc if arr is None else arr
         kunci = self._kunci.indikator
         n_le = self._jumlah("indikator")
         n_lt = int(np.searchsorted(kunci[:n_le], self._as_of_ns, side="left"))
         if k == 0:
-            return float(nilai.iloc[n_lt]) if n_le > n_lt else math.nan
+            return float(nilai[n_lt]) if n_le > n_lt else math.nan
         pos = n_lt - k
         if pos < 0:
             return math.nan
-        return float(nilai.iloc[pos])
+        return float(nilai[pos])
 
     def jumlah_bar_valid(self, termasuk_as_of: bool = True) -> int:
         """Banyak bar valid ≤ as_of (atau < as_of bila `termasuk_as_of=False`)."""
