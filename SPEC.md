@@ -833,7 +833,14 @@ class HasilAmbil:
   - Semua level harga (harga_maks, stop, target, trailing) dihitung di ruang tersesuaikan, dikonversi ke nominal (× `F(d)`) untuk pembulatan, lalu dikonversi kembali.
   - Semua sizing (§14.1) di backtest memakai harga nominal.
   - Posisi disimpan sebagai `lembar_adj`. Semua arus Rupiah = `lembar_adj × harga_adj`, yang nilainya sama dengan nominal.
+  - Perbandingan eksekusi (gap terhadap `harga_maks`, stop, trailing, target) memakai harga nominal hari itu yang dibulatkan ke 6 desimal di kedua sisi, sehingga keputusan tidak bergantung pada `F(d)` yang desimalnya tak berhingga (mis. rasio 1,2 atau 3).
   - Di live, `F(t) = 1`.
+- **Posisi dan order yang melewati split belum disesuaikan** (backtest, jurnal kertas, jalur per sinyal). Karena split itu tidak ikut `F(d)`, harga cache melompat dengan faktor `1/r` pada `s`. Agar arus Rupiah tetap sama dengan nominal:
+  - Posisi yang entry-nya sebelum `s` dikonversi pada hari bursa pertama ≥ `s`, sebelum langkah 0 §15.1: `lembar_adj × r`; harga beli, `harga_maks`, stop awal, stop/trailing, target, dan close valid terakhir ÷ `r`; `faktor_entry × r`, sehingga semua nilai nominal pada tanggal entry tidak berubah. Puncak `HHV_sejak_entry` untuk trailing memakai high sebelum `s` ÷ `r`.
+  - Order yang sinyalnya sebelum `s` dan diproses pada/sesudah `s` memakai `faktor_sinyal × r` (sama seperti split yang sudah disesuaikan).
+  - `close kemarin` untuk ARA/ARB pada hari pertama ≥ `s` adalah close valid sebelumnya ÷ `r`.
+  - Selama SMA keluar MR masih mencakup bar sebelum `s` (kurang dari `sma_keluar` bar valid sejak `s`), `KELUAR_SMA` tidak dievaluasi. ATR yang melonjak karena lompatan itu hanya menurunkan kandidat trailing; trailing tidak pernah turun, jadi tidak perlu aturan khusus.
+  - Transaksi itu selalu diberi tanda `ANOMALI`, termasuk bila tanggal itu tercatat di `anomali_ok.csv`.
 - Tanpa langkah ini, saham yang kemudian di-split akan tampak "murah" di masa lalu. Ini bentuk look-ahead.
 
 ### 8.5 Validasi kualitas data

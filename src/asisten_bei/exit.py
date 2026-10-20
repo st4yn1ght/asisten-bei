@@ -24,7 +24,7 @@ tidak ada eksekusi dan nilai posisi = close valid terakhir.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -110,7 +110,13 @@ def bar_hari(dv: "DataView", kode: str) -> BarHari:
     seri = dv.seri(kode)
     f = _f(seri.faktor_split())
     c = seri.close_valid_sebelum()
-    acuan = None if c is None else _d(c)
+    acuan = None
+    if c is not None:
+        tgl_c, close = c
+        acuan = _d(close)
+        for s, r in seri.split_belum_disesuaikan():  # §8.4: close kemarin dalam skala harga hari ini
+            if tgl_c < s <= d:
+                acuan /= _d(r)
     r = seri.bar_mentah()
     if r is None:
         return BarHari(kode, d, False, False, None, None, None, None, f, acuan)
@@ -122,6 +128,13 @@ def bar_hari(dv: "DataView", kode: str) -> BarHari:
 
     return BarHari(kode, d, True, ok, angka("open"), angka("high"), angka("low"), angka("close"), f, acuan,
                    str(r.get("sumber", "") or ""))
+
+
+def _nom(harga_adj: Decimal, faktor: Decimal) -> Decimal:
+    """Harga nominal tanpa derau float (6 desimal). Semua perbandingan eksekusi (gap, stop, target,
+    harga_maks) memakai nilai ini di kedua sisi, sehingga keputusan tidak bergantung pada F(d) yang
+    desimalnya tak berhingga (mis. rasio split 1,2 atau 3)."""
+    return ke_desimal_harga(harga_adj * faktor)
 
 
 def terkunci_arb(bar: BarHari, bei: AturanBEI) -> bool:
@@ -270,9 +283,10 @@ def periksa_isi(order: Order, bar: BarHari, bei: AturanBEI) -> str | None:
     None = boleh diisi (cek slot/sektor/kas dilakukan pemakai)."""
     if not bar.valid or bar.open is None:
         return BATAL_DATA
-    # Di ruang tersesuaikan: harga_maks nominal pada tanggal sinyal ÷ F(tanggal sinyal). Sama dengan
-    # perbandingan nominal di hari d, juga bila split terjadi tepat pada d.
-    if bar.open > order.harga_maks / order.faktor_sinyal:
+    # Nominal hari d: harga_maks nominal tanggal sinyal ÷ F(tanggal sinyal) × F(d), juga bila split
+    # terjadi di antara tanggal sinyal dan d.
+    f = bar.faktor
+    if _nom(bar.open, f) > _nom(order.harga_maks / order.faktor_sinyal, f):
         return BATAL_GAP
     if terkunci_ara(bar, bei):
         return BATAL_ARA
@@ -300,9 +314,9 @@ def isi_order(order: Order, bar: BarHari, cfg: "Config", bei: AturanBEI) -> Posi
     stop_adj = order.stop / order.faktor_sinyal
     acuan_beli = min(bar.open, order.harga_maks / order.faktor_sinyal)
     target = None
-    if order.target_r is not None and harga > stop_adj:  # harga isi ≤ stop: langsung STOP_GAP_HARI_ENTRY
-        t_nom = hitung_target(harga * bar.faktor, stop_adj * bar.faktor, order.target_r, bei, bar.tanggal)
-        target = t_nom / bar.faktor
+    isi_nom, stop_nom = _nom(harga, bar.faktor), _nom(stop_adj, bar.faktor)
+    if order.target_r is not None and isi_nom > stop_nom:  # harga isi ≤ stop: langsung STOP_GAP_HARI_ENTRY
+        target = hitung_target(isi_nom, stop_nom, order.target_r, bei, bar.tanggal) / bar.faktor
     risiko = Decimal(order.lembar) * biaya.risiko_lembar(order.harga_maks, order.stop, cfg)
     return Posisi(
         kode=order.kode, strategi=order.strategi, sektor=order.sektor,
@@ -312,6 +326,7 @@ def isi_order(order: Order, bar: BarHari, cfg: "Config", bei: AturanBEI) -> Posi
         harga_maks=order.harga_maks / order.faktor_sinyal, faktor_entry=bar.faktor,
         slippage_beli_idr=lembar * (harga - acuan_beli),
         tanggal_valid_terakhir=bar.tanggal, close_valid_terakhir=bar.close, meta=dict(order.meta),
+        tanda={ANOMALI} if META_SPLIT_ORDER in order.meta else set(),
     )
 
 
@@ -325,7 +340,7 @@ def keluar_hari_entry(pos: Posisi, bar: BarHari, cfg: "Config", bei: AturanBEI) 
     terkunci = terkunci_arb(bar, bei)
     if terkunci:
         pos.meta["_terkunci_arb"] = bar.tanggal
-    if bar.open > pos.stop:
+    if _nom(bar.open, bar.faktor) > _nom(pos.stop, bar.faktor):
         return None
     if terkunci:
         pos.tanda.add(TERTUNDA_ARB)
@@ -334,6 +349,66 @@ def keluar_hari_entry(pos: Posisi, bar: BarHari, cfg: "Config", bei: AturanBEI) 
         return None
     return _tutup(pos, bar.tanggal, STOP_GAP_HARI_ENTRY, biaya.harga_isi_jual(bar.open, cfg), bar.faktor, cfg,
                   acuan=bar.open)
+
+
+# ---------------------------------------------------------------------------
+# Split yang belum disesuaikan sumber (§8.4)
+# ---------------------------------------------------------------------------
+
+META_SPLIT_ORDER = "_split_belum_disesuaikan_order"  # tanggal split yang dikonversi pada order
+META_SPLIT_POSISI = "_split_belum_disesuaikan"  # tanggal split yang sudah dikonversi pada posisi
+_HHV_MULAI = "_hhv_mulai"  # HHV trailing dihitung dari tanggal ini (split terakhir) ...
+_HHV_SEBELUM = "_hhv_sebelum"  # ... digabung dengan puncak sebelumnya dalam skala sekarang
+
+
+def sesuaikan_order_split(order: Order, dv: "DataView") -> Order:
+    """Order dari sinyal sebelum split belum disesuaikan `s` ≤ hari ini: `faktor_sinyal × r` (§8.4), sehingga
+    harga_maks/stop/lembar berada di skala harga pasca-split seperti split yang sudah disesuaikan."""
+    split = [(s, r) for s, r in dv.split_belum_disesuaikan(order.kode) if s > order.tanggal_sinyal]
+    if not split:
+        return order
+    faktor = order.faktor_sinyal
+    for _s, r in split:
+        faktor *= _d(r)
+    meta = {**order.meta, META_SPLIT_ORDER: [s for s, _r in split]}
+    return replace(order, faktor_sinyal=faktor, meta=meta)
+
+
+def sesuaikan_posisi_split(pos: Posisi, dv: "DataView") -> bool:
+    """Konversi posisi terbuka yang melewati split belum disesuaikan `s` (entry < s ≤ hari ini) ke skala
+    pasca-split (§8.4): lembar × r, level harga ÷ r, faktor_entry × r; tanda ANOMALI. Dipanggil setiap hari
+    sebelum langkah 0. True bila ada konversi."""
+    if not pos.terbuka:
+        return False
+    sudah = pos.meta.setdefault(META_SPLIT_POSISI, [])
+    baru = [(s, _d(r)) for s, r in dv.split_belum_disesuaikan(pos.kode) if s > pos.tanggal_entry and s not in sudah]
+    for s, r in baru:
+        if pos.strategi in STRATEGI_TRAILING:
+            mulai = pos.meta.get(_HHV_MULAI, pos.tanggal_entry)
+            akhir = pos.tanggal_valid_terakhir
+            hhv = dv.hhv_sejak(pos.kode, mulai, akhir) if akhir is not None and mulai <= akhir else math.nan
+            lama = pos.meta.get(_HHV_SEBELUM)
+            puncak = [x for x in (hhv, lama) if x is not None and not math.isnan(x)]
+            pos.meta[_HHV_SEBELUM] = max(puncak) / float(r) if puncak else None
+            pos.meta[_HHV_MULAI] = s
+        pos.lembar *= r
+        pos.harga_beli /= r
+        pos.harga_maks /= r
+        pos.stop_awal /= r
+        pos.stop /= r
+        if pos.target is not None:
+            pos.target /= r
+        if pos.close_valid_terakhir is not None:
+            pos.close_valid_terakhir /= r
+        pos.faktor_entry *= r
+        sudah.append(s)
+        pos.tanda.add(ANOMALI)
+    return bool(baru)
+
+
+def _sma_melewati_split(dv: "DataView", kode: str, n: int) -> bool:
+    """SMA n bar pada hari ini masih memuat bar sebelum split yang belum disesuaikan (§8.4)."""
+    return any(dv.jumlah_bar_valid_sejak(kode, s) < n for s, _r in dv.split_belum_disesuaikan(kode))
 
 
 # ---------------------------------------------------------------------------
@@ -363,8 +438,10 @@ def buka(pos: Posisi, bar: BarHari, cfg: "Config", bei: AturanBEI, kal: "Kalende
         return None
     # 1. Bar terkunci ARB → semua jual hari ini ditunda. Stop yang terlewati dijadwalkan di open bar valid
     #    berikutnya dengan label gap-nya (bar terkunci datar: open = low).
+    f = bar.faktor
+    stop_nom = _nom(pos.stop, f)
     if terkunci_arb(bar, bei):
-        if pos.jual_terjadwal is None and (bar.open <= pos.stop or bar.low <= pos.stop):
+        if pos.jual_terjadwal is None and (_nom(bar.open, f) <= stop_nom or _nom(bar.low, f) <= stop_nom):
             pos.jual_terjadwal = pos.label_gap
             pos.tanggal_jadwal = d
         if pos.jual_terjadwal is not None:
@@ -376,10 +453,10 @@ def buka(pos: Posisi, bar: BarHari, cfg: "Config", bei: AturanBEI, kal: "Kalende
         return _tutup(pos, d, pos.jual_terjadwal, biaya.harga_isi_jual(bar.open, cfg), bar.faktor, cfg,
                       acuan=bar.open)
     # 3. Gap di bawah stop.
-    if bar.open <= pos.stop:
+    if _nom(bar.open, f) <= stop_nom:
         return _tutup(pos, d, pos.label_gap, biaya.harga_isi_jual(bar.open, cfg), bar.faktor, cfg, acuan=bar.open)
     # 4. Gap di atas target (limit, tanpa slippage).
-    if pos.target is not None and bar.open >= pos.target:
+    if pos.target is not None and _nom(bar.open, f) >= _nom(pos.target, f):
         return _tutup(pos, d, TARGET_GAP, bar.open, bar.faktor, cfg)
     return None
 
@@ -398,10 +475,11 @@ def intraday(pos: Posisi, bar: BarHari, cfg: "Config", hari_entry: bool) -> Kelu
         return None
     if pos.meta.get("_terkunci_arb") == bar.tanggal:
         return None
-    if bar.low <= pos.stop:
+    f = bar.faktor
+    if _nom(bar.low, f) <= _nom(pos.stop, f):
         return _tutup(pos, bar.tanggal, pos.label_stop, biaya.harga_isi_jual(pos.stop, cfg), bar.faktor, cfg,
                       acuan=pos.stop)
-    if pos.target is not None and bar.high >= pos.target:
+    if pos.target is not None and _nom(bar.high, f) >= _nom(pos.target, f):
         return _tutup(pos, bar.tanggal, TARGET, pos.target, bar.faktor, cfg)
     return None
 
@@ -445,13 +523,16 @@ def tutup(
     if pos.strategi in STRATEGI_TRAILING:
         baris = dv.baris(pos.kode)
         atr = float(baris["atr"]) if baris is not None else math.nan
-        hhv = dv.hhv_sejak(pos.kode, pos.tanggal_entry, d)
+        hhv = dv.hhv_sejak(pos.kode, pos.meta.get(_HHV_MULAI, pos.tanggal_entry), d)
+        lama = pos.meta.get(_HHV_SEBELUM)
+        if lama is not None:  # puncak sebelum split belum disesuaikan, dalam skala sekarang (§8.4)
+            hhv = lama if math.isnan(hhv) else max(hhv, lama)
         if not math.isnan(atr) and atr > 0 and not math.isnan(hhv):
             kandidat_nom = (_d(hhv) - _d(float(p.trailing_atr)) * _d(atr)) * bar.faktor
             if kandidat_nom > 0:
-                kandidat = bei.bulat_atas(ke_desimal_harga(kandidat_nom), d).nilai / bar.faktor
-                if kandidat > pos.stop:
-                    pos.stop = kandidat
+                bulat = bei.bulat_atas(ke_desimal_harga(kandidat_nom), d).nilai
+                if bulat > _nom(pos.stop, bar.faktor):
+                    pos.stop = bulat / bar.faktor
 
     if pos.jual_terjadwal is not None:  # jadwal lama yang tertunda tetap berlaku dengan alasan aslinya
         return pos.jual_terjadwal
@@ -459,7 +540,8 @@ def tutup(
     if cfg.kondisi_pasar.jangan_beli_paksa_jual and status_pasar == JANGAN_BELI:
         alasan.append(PAKSA_JUAL_PASAR)
     hari_ke = kal.nomor_hari(pos.tanggal_entry, d)
-    if pos.strategi == "MR" and hari_ke >= int(p.min_hari_tahan):
+    if (pos.strategi == "MR" and hari_ke >= int(p.min_hari_tahan)
+            and not _sma_melewati_split(dv, pos.kode, int(p.sma_keluar))):
         baris = dv.baris(pos.kode)
         sma = float(baris[k_sma(int(p.sma_keluar))]) if baris is not None else math.nan
         if not math.isnan(sma) and float(bar.close) > sma:

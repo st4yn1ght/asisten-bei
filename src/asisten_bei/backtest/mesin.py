@@ -217,6 +217,7 @@ def simulasikan(
         aktif_hari_ini = list(posisi)  # semua posisi yang terbuka pada suatu saat di hari d (untuk tanda)
         hasil_jual_open = Decimal(0)
         for pos in list(posisi):
+            ex.sesuaikan_posisi_split(pos, dv)
             k = ex.buka(pos, bar(pos.kode), cfg, bei, kal)
             if k is not None:
                 kas += k.hasil_jual_idr
@@ -226,6 +227,7 @@ def simulasikan(
         tersedia = kas if cfg.risiko.dana_jual_langsung_dipakai else kas - hasil_jual_open
         sektor = Counter(p.sektor for p in posisi)
         for order in tertunda:
+            order = ex.sesuaikan_order_split(order, dv)
             b = bar(order.kode)
             status = ex.periksa_isi(order, b, bei)
             total = Decimal(0)
@@ -398,12 +400,14 @@ def jalur_per_sinyal(
         aktif_hari_ini = [pos for pos, _j in terbuka]  # untuk tanda, seperti simulasikan
         lanjut = []
         for pos, j in terbuka:
+            ex.sesuaikan_posisi_split(pos, dv)
             if ex.buka(pos, bar(pos.kode), cfg, bei, kal) is not None:
                 selesai(pos, j)
             else:
                 lanjut.append((pos, j))
         terbuka = lanjut
         for order, j in tertunda:
+            order = ex.sesuaikan_order_split(order, dv)
             b = bar(order.kode)
             status = ex.periksa_isi(order, b, bei)
             j.status_isi = status or ex.TERISI

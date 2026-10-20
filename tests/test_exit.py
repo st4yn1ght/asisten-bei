@@ -28,7 +28,7 @@ import pandas as pd
 import pytest
 
 from asisten_bei import exit as ex
-from asisten_bei.aturan_bei import AturanBEI
+from asisten_bei.aturan_bei import AturanBEI, ke_desimal_harga
 from asisten_bei.backtest.mesin import (
     BATAL_KAS_SAAT_OPEN,
     BATAL_SEKTOR_SAAT_OPEN,
@@ -44,7 +44,7 @@ from asisten_bei.seleksi import REKOMENDASI
 from asisten_bei.skor import KomponenSkor, SinyalBerskor
 from asisten_bei.strategi.dasar import Sinyal
 from asisten_bei.universe import HasilEligibilitas
-from bantu_pasar import HARI, cfg_uji, pasar, tgl
+from bantu_pasar import HARI, cfg_uji, hari, pasar, tgl
 
 D = Decimal
 LABEL_FIKTIF = "FIKTIF – KHUSUS UJI"
@@ -193,6 +193,7 @@ def jalankan(
         dv = pp.tampilan(d)
         b = ex.bar_hari(dv, od.kode)
         if pos is None:
+            od = ex.sesuaikan_order_split(od, dv)
             st = ex.periksa_isi(od, b, bei)
             j.status_isi = st or ex.TERISI
             if st is not None:
@@ -202,6 +203,7 @@ def jalankan(
                 return j
             hari_entry = True
         else:
+            ex.sesuaikan_posisi_split(pos, dv)
             if ex.buka(pos, b, cfg, bei, kal) is not None:
                 return j
             hari_entry = False
@@ -1765,3 +1767,49 @@ def test_simulasikan_sama_dengan_pemutar_exit(bar, s, e, sg, n):
     k = jalankan(pp, od, e, e + n).keluar
     assert (p.keluar.alasan, p.keluar.tanggal, p.keluar.harga) == (k.alasan, k.tanggal, k.harga)
     assert p.keluar.r == k.r
+
+
+# --- Rasio split dengan desimal tak berhingga (MX-1) ----------------------------------------------------
+# Cache = nominal ÷ rasio (float, seperti yfinance) karena split FIKTIF terjadi sesudah semua tanggal skenario,
+# sehingga F = rasio pada semua bar. Keputusan batas (gap, stop, target, harga_maks) harus sama dengan F = 1.
+
+
+def _skenario_rasio(rasio: float, bars_nominal, *, harga_maks: str, stop: str, i_akhir: int, cfg=CFG):
+    bars = [tuple(x / rasio for x in b) for b in bars_nominal]
+    split = None
+    if rasio != 1:
+        split = {KODE: pd.Series([rasio], index=pd.DatetimeIndex([hari(I0 + 20)], name="tanggal"), name="split")}
+    pp = buat_pasar({KODE: bars}, cfg, split=split)
+    od = order(i_sinyal=S0, harga_maks=harga_maks, stop=stop, faktor=repr(rasio))
+    return jalankan(pp, od, E0, i_akhir)
+
+
+@pytest.mark.parametrize("rasio", [1.0, 1.2, 3.0, 1.1])
+def test_open_sama_dengan_harga_maks_terisi_untuk_semua_rasio_split(rasio):
+    # Open nominal 955 = harga_maks 955 → terisi (§16.2: BATAL_GAP hanya bila open > harga_maks).
+    j = _skenario_rasio(rasio, [(940, 950, 930, 940)] * 3 + [(955, 960, 950, 955)] * 4,
+                        harga_maks="955", stop="900", i_akhir=E0 + 2)
+    assert j.status_isi == ex.TERISI
+
+
+@pytest.mark.parametrize("rasio", [1.0, 1.2, 3.0, 1.1])
+def test_open_sama_dengan_stop_keluar_stop_gap_untuk_semua_rasio_split(rasio):
+    # E+1 open nominal = low = 950 = stop → STOP_GAP di 950 × 0,999 = 949,05 (§15.1 langkah 3).
+    j = _skenario_rasio(rasio, [(1000, 1010, 990, 1000)] * 4 + [(950, 960, 950, 955)] + [(955, 960, 952, 955)] * 3,
+                        harga_maks="1050", stop="950", i_akhir=E0 + 3)
+    k = j.keluar
+    assert k is not None and (k.tanggal, k.alasan) == (tgl(E0 + 1), ex.STOP_GAP)
+    assert ke_desimal_harga(k.harga_nominal) == D("949.05")
+
+
+@pytest.mark.parametrize("slip", ["0.1", "0"])
+@pytest.mark.parametrize("rasio", [1.0, 1.2, 3.0])
+def test_harga_isi_sama_dengan_stop_tidak_error_dan_keluar_hari_entry(rasio, slip):
+    # Stop nominal = open × (1 + slip): harga isi = stop → tidak ada target (bukan ValueError dari hitung_target),
+    # dan open ≤ stop → STOP_GAP_HARI_ENTRY (§15.1 "Hari entry").
+    cfg = cfg_uji({"biaya.slippage_pct": slip})
+    stop = "1001" if slip == "0.1" else "1000"
+    j = _skenario_rasio(rasio, [(1040, 1050, 1030, 1040)] * 3 + [(1000, 1010, 990, 1000)] * 3,
+                        harga_maks="1050", stop=stop, i_akhir=E0 + 2, cfg=cfg)
+    assert j.status_isi == ex.TERISI and j.pos.target is None
+    assert j.keluar is not None and j.keluar.alasan == ex.STOP_GAP_HARI_ENTRY

@@ -292,13 +292,24 @@ class TampilanSeri:
             return self._ds.mentah.iloc[n - 1]
         return None
 
-    def close_valid_sebelum(self) -> float | None:
-        """Close bar valid terakhir sebelum as_of (acuan "close kemarin"), None bila tidak ada."""
+    def close_valid_sebelum(self) -> tuple[date, float] | None:
+        """(tanggal, close) bar valid terakhir sebelum as_of (acuan "close kemarin"), None bila tidak ada."""
         n_lt = self.jumlah_bar_valid(termasuk_as_of=False)
         if n_lt == 0:
             return None
         arr = self._kunci.kolom(self._ds, "valid", "close")
-        return float(self._ds.valid["close"].iloc[n_lt - 1] if arr is None else arr[n_lt - 1])
+        close = float(self._ds.valid["close"].iloc[n_lt - 1] if arr is None else arr[n_lt - 1])
+        return pd.Timestamp(self._kunci.valid[n_lt - 1]).date(), close
+
+    def split_belum_disesuaikan(self) -> list[tuple[date, float]]:
+        """(tanggal, rasio) split bertanggal ≤ as_of yang belum disesuaikan sumber (§8.4: tidak ikut F(d)),
+        urut tanggal. Klasifikasi ini metadata split (§8.8)."""
+        ds = self._ds
+        if ds.split_faktor is None:
+            return []
+        s = ds.split.iloc[: self._jumlah("split")]
+        tak = s[~s.index.isin(ds.split_faktor.index)]
+        return [(ts.date(), float(r)) for ts, r in tak.items()]
 
     def sebelum(self, kolom: str, k: int) -> float:
         """`x_{t−k}` dengan t = as_of: nilai kolom indikator pada bar valid ke-k sebelum as_of.
@@ -462,6 +473,9 @@ class DataView:
 
     def faktor_split(self, kode: str, d: date | pd.Timestamp | str | None = None) -> float:
         return self.seri(kode).faktor_split(d)
+
+    def split_belum_disesuaikan(self, kode: str) -> list[tuple[date, float]]:
+        return self.seri(kode).split_belum_disesuaikan()
 
     def nominal(self, kode: str, harga_adj: Any, d: date | pd.Timestamp | str | None = None) -> Any:
         return self.seri(kode).nominal(harga_adj, d)
