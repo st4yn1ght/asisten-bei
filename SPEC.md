@@ -1449,10 +1449,12 @@ PENUTUPAN d
 - **Penugasan transaksi:**
   - Transaksi masuk ke periode/jendela berdasarkan **tanggal entry**.
   - Untuk statistik in-sample, transaksi yang masih terbuka pada hari bursa terakhir sebelum `holdout_mulai` diperlakukan `TERBUKA`: dinilai pada close hari itu, tidak masuk PF/win rate, dan diberi tanda `MELEWATI_HOLDOUT`. Tanda lainnya diambil sesuai keadaan hari itu (tanda yang baru muncul di holdout tidak dihitung). Ini mencegah harga dan peristiwa periode holdout bocor ke statistik in-sample.
-- **Jendela:** setiap tahun kalender di in-sample. Tahun parsial diberi label "parsial". Jendela hanya dihitung untuk G5 jika memiliki ≥ `min_transaksi_per_jendela` transaksi.
+- **Jendela:** setiap tahun kalender di in-sample, dipotong di akhir data bila holdout belum tercapai. Tahun yang tidak mencakup hari bursa pertama sampai hari bursa terakhirnya diberi label "parsial". Jendela hanya dihitung untuk G5 jika memiliki ≥ `min_transaksi_per_jendela` transaksi.
+- **Sinyal dilewati** masuk periode menurut tanggal sinyal. Order dari sinyal hari terakhir in-sample yang baru diputuskan di open holdout pertama (BATAL_*) tidak ikut statistik in-sample, karena hasilnya memakai harga holdout.
 - **Titik awal setiap periode/jendela:** `E_awal` strategi dan pembanding IHSG sama-sama diambil pada close hari bursa terakhir sebelum periode. Untuk periode pertama: modal awal dan close IHSG sebelum `backtest.mulai`. `hari_kalender` dihitung dari tanggal itu.
 - **Parameter tidak dioptimasi.**
 - **Disiplin holdout:**
+  - Bila `holdout_log.csv` terkunci (dibuka di Excel), isinya ditulis ke `holdout_log_<HHMMSS>.csv` dengan peringatan; berkas alternatif ini tetap dibaca untuk N/M (baris yang sama dihitung sekali), jadi jangan dihapus.
   - Setiap run × mode yang menghitung holdout menambah satu baris ke `holdout_log.csv`: `waktu, holdout_mulai, hash_aturan, hash_input, strategi, mode, pf_r_holdout, n_holdout`. Kolom `strategi` berisi nama run (`run_backtest`). Semua baris dari satu perintah backtest memakai `waktu` yang sama.
   - Ringkasan menampilkan: "Holdout telah dilihat **N** kali dengan **M** konfigurasi aturan berbeda." N = banyaknya nilai `waktu` berbeda (perintah backtest), M = banyaknya `hash_aturan` berbeda. Jika M > 1, holdout tidak lagi murni dan ringkasan memberi peringatan.
   - `cek` memperingatkan jika `holdout_mulai` berbeda dari nilai pertama di log.
@@ -1508,7 +1510,7 @@ Strategi **lolos** jika semua syarat berikut terpenuhi pada mode `edge`, untuk r
 | G5 | In-sample: ≥ `min_pct_jendela_pf_di_atas_1` (50%) jendela yang memenuhi syarat memiliki PF_R > 1. Jika tidak ada jendela yang memenuhi syarat, G5 **gagal**. PF_R jendela "n/a (tanpa kerugian)" dengan ≥ 1 transaksi menang dihitung > 1. |
 | G6 | Penuh: max drawdown R ≤ `maks_drawdown_r` (15R) |
 
-**Isi `output/backtest/gate_status.json`**: `{"catatan": <disclaimer>, "strategi": {"PB": {...}, ...}}`. Setiap entri strategi: `lolos`, `syarat` (per G1–G6: `nilai`, `ambang`, `lolos`, `uraian`), `hash_aturan` (= `hash_aturan[X]`), `hash_input`, `rincian_hash` (hash pendek per bagian config dan per berkas input, agar run harian dapat menyebut bagian yang berubah), `tanggal_data_terakhir`, `dibuat_pada`, `holdout_mulai`, `subset_terjangkau_lemah` (§16.7), dan `folder_run` (folder run asal, tempat `sinyal_r_<strategi>.csv` dibaca oleh §17.4). JSON deterministik (kunci terurut, indentasi 2), sehingga dua run identik hanya berbeda pada `dibuat_pada`.
+**Isi `output/backtest/gate_status.json`**: `{"catatan": <disclaimer>, "strategi": {"PB": {...}, ...}}`. Setiap entri strategi: `lolos`, `syarat` (per G1–G6: `nilai`, `ambang`, `lolos`, `uraian`), `hash_aturan` (= `hash_aturan[X]`), `hash_input`, `rincian_hash` (hash pendek per bagian config dan per berkas input, agar run harian dapat menyebut bagian yang berubah), `tanggal_data_terakhir`, `dibuat_pada`, `holdout_mulai`, `subset_terjangkau_lemah` (§16.7), dan `folder_run` (folder run asal, tempat `sinyal_r_<strategi>.csv` dibaca oleh §17.4). JSON deterministik (kunci terurut, indentasi 2), sehingga dua run identik hanya berbeda pada `dibuat_pada` dan `folder_run` (keduanya memuat waktu run).
 
 **Penulisan:**
 
@@ -1530,11 +1532,11 @@ Strategi **lolos** jika semua syarat berikut terpenuhi pada mode `edge`, untuk r
   - Sinyal hari terakhir berstatus `MENUNGGU`.
   - Unit yang masih terbuka di akhir dicatat `TERBUKA` dan tidak masuk statistik.
   - Statistik R per sinyal hanya memakai unit `TERISI` yang sudah tertutup; jumlah `BATAL_*`, `MENUNGGU`, dan sinyal hari JANGAN BELI ditampilkan terpisah.
-- **Subset terjangkau:** dari transaksi holdout mode `edge`, ambil yang terjangkau menurut aturan `realistis` pada tanggal sinyal: harga nominal, 1 lot ≤ anggaran risiko dan ≤ alokasi maks yang dihitung dari modal mode `realistis` (`backtest.mode.realistis.modal_idr` yang sudah diresolusi), dengan status pasar hari itu. Tampilkan n, PF_R, dan ekspektansi R. Jika PF_R subset < `min_pf_r_holdout` atau n < `min_transaksi_holdout`, `gate_status.json` mencatat `subset_terjangkau_lemah: true`, dan laporan harian menampilkan peringatan **"keunggulan belum terbukti pada saham yang terjangkau modal Anda"**.
+- **Subset terjangkau:** dari transaksi holdout mode `edge`, ambil yang terjangkau menurut aturan `realistis` pada tanggal sinyal: harga nominal, 1 lot ≤ anggaran risiko dan ≤ alokasi maks yang dihitung dari modal mode `realistis` (`backtest.mode.realistis.modal_idr` yang sudah diresolusi), dengan status pasar hari itu. Sizing-nya sama dengan live (§13.2), termasuk `izinkan_satu_lot_melebihi_risiko`. Tampilkan n, PF_R, dan ekspektansi R. Jika PF_R subset < `min_pf_r_holdout` atau n < `min_transaksi_holdout`, `gate_status.json` mencatat `subset_terjangkau_lemah: true`, dan laporan harian menampilkan peringatan **"keunggulan belum terbukti pada saham yang terjangkau modal Anda"**.
 
 ### 16.8 Survivorship
 
-- Dengan `universe_history.csv`, eligibilitas per tanggal mengikuti riwayat konstituen. Ringkasan mencantumkan jumlah konstituen historis yang **tidak punya data** di sumber mana pun (umumnya saham delisting). Ini sisa bias yang tidak bisa dihilangkan dengan yfinance.
+- Dengan `universe_history.csv`, eligibilitas per tanggal mengikuti riwayat konstituen. Ringkasan mencantumkan jumlah konstituen historis yang **tidak punya data yang dapat dipakai** (tidak ada di sumber mana pun, atau ditolak validasi §8.2; alasannya di berkas kualitas). Umumnya ini saham delisting. Ini sisa bias yang tidak bisa dihilangkan dengan yfinance.
 - Tanpa berkas itu, banner di atas ringkasan berbunyi: **"PERINGATAN SURVIVORSHIP BIAS: backtest memakai daftar universe saat ini untuk seluruh periode. Hasil cenderung terlalu optimis."**
 - `breadth_universe` selalu memakai daftar saat ini. Ini juga dicatat sebagai bias.
 
@@ -1905,7 +1907,7 @@ Jika broker membulatkan fee berbeda, pakai angka dari trade confirmation.
   - md dan csv sebagai teks, setelah menormalkan stempel waktu;
   - xlsx berdasarkan nilai sel per sheet (openpyxl);
   - html berdasarkan teks setelah gambar base64 dibuang, ditambah jumlah gambar.
-- **Byte-identik:** `transaksi_*.csv`, `ekuitas_*.csv`, dan `gate_status.json` (tanpa `dibuat_pada`) dari dua run yang sama harus byte-identik.
+- **Byte-identik:** `transaksi_*.csv`, `ekuitas_*.csv`, dan `gate_status.json` (tanpa `dibuat_pada` dan `folder_run`) dari dua run yang sama harus byte-identik.
 
 | Kode | Uji | Kriteria lulus |
 |---|---|---|

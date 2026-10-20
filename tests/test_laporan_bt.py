@@ -411,6 +411,14 @@ def test_tanpa_peringatan_acak_bila_di_bawah_batas(tmp_path):
     assert "≤ 1.000,00: wajar" in md
 
 
+def test_uji_acak_tidak_dinilai_bila_holdout_tanpa_transaksi_tertutup(tmp_path):
+    proyek = buat_proyek(tmp_path, {"backtest.holdout_mulai": "2025-06-30"})  # holdout hanya hari terakhir data
+    assert jalankan(proyek, "--strategi", "acak", "--mode", "edge").kode == 0
+    md = (_folder(proyek) / "ringkasan.md").read_text(encoding="utf-8")
+    assert "Tidak dinilai: ACAK tanpa transaksi tertutup di holdout." in md
+    assert ": wajar" not in md
+
+
 def test_universe_history_tanpa_banner_dan_menghitung_konstituen_tanpa_data(tmp_path):
     proyek = buat_proyek(tmp_path)
     (proyek.akar / "input_uji" / "universe_history.csv").write_text(
@@ -421,7 +429,7 @@ def test_universe_history_tanpa_banner_dan_menghitung_konstituen_tanpa_data(tmp_
     assert h.kode == 0, h.teks
     md = (_folder(proyek) / "ringkasan.md").read_text(encoding="utf-8")
     assert "PERINGATAN SURVIVORSHIP BIAS" not in md
-    assert "Konstituen historis tanpa data di sumber mana pun: 1 (ZZZZ)" in md
+    assert "Konstituen historis tanpa data yang dapat dipakai: 1 (ZZZZ; alasannya di berkas kualitas)" in md
     assert "universe_history.csv dipakai, tetapi 1 konstituen historis tidak punya data" in md
     assert "Konstituen historis tanpa data: 1" in h.teks
     # CCCC bukan konstituen historis → tidak pernah ditransaksikan.

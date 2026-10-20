@@ -37,7 +37,7 @@ from .. import exit as ex
 from ..biaya import ke_decimal
 from ..config import resolusi_konteks
 from ..kondisi_pasar import parameter_entry
-from ..operasional import tulis_atomik
+from ..operasional import nama_alternatif, tulis_atomik, tulis_keluaran
 from ..sizing import hitung_sizing
 from . import metrik as mt
 
@@ -597,11 +597,13 @@ def alasan_tidak_lolos(
     bagian = []
     if e.get("hash_aturan") != hash_aturan:
         berubah = _berubah(lama_rinci.get("aturan"), kini_rinci.get("aturan"))
-        bagian.append(
-            "bagian config berubah sejak backtest: " + ", ".join(berubah)
-            if berubah
-            else "aturan (config atau versi program) berubah sejak backtest"
-        )
+        cfg_berubah = [k for k in berubah if k != "versi_program"]
+        if "versi_program" in berubah:  # bukan bagian config.yaml
+            bagian.append("versi program berubah sejak backtest")
+        if cfg_berubah:
+            bagian.append("bagian config berubah sejak backtest: " + ", ".join(cfg_berubah))
+        if not berubah:
+            bagian.append("aturan (config atau versi program) berubah sejak backtest")
     if e.get("hash_input") != hash_input:
         berubah = _berubah(lama_rinci.get("input"), kini_rinci.get("input"))
         bagian.append(
@@ -699,21 +701,33 @@ def _baris_csv(nilai: Sequence[str]) -> str:
     return buf.getvalue()
 
 
-def tambah_holdout_log(folder_bt: Path, baris: Iterable[BarisHoldoutLog]) -> Path:
+def tambah_holdout_log(folder_bt: Path, baris: Iterable[BarisHoldoutLog]) -> tuple[Path, str | None]:
     """Tambahkan baris ke `<folder_bt>/holdout_log.csv`. Berkas baru (atau kosong) diawali baris disclaimer
-    dan header. Penulisan atomik (isi lama + baris baru)."""
+    dan header. Penulisan atomik (isi lama + baris baru). Bila berkas terkunci (dibuka di Excel), isi lengkap
+    ditulis ke `holdout_log_<HHMMSS>.csv` (§18.2, §20.2) dan `baca_holdout_log` tetap menghitungnya.
+    Mengembalikan (path yang ditulis, peringatan atau None)."""
     path = Path(folder_bt) / NAMA_HOLDOUT_LOG
+    terkunci = False
     try:
         lama = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         lama = ""
+    except PermissionError:  # tidak bisa dibaca sekalipun: hanya baris run ini yang ditulis ke nama alternatif
+        lama, terkunci = "", True
     if not lama.strip():
         lama = DISCLAIMER_CSV + "\n" + _baris_csv(KOLOM_HOLDOUT_LOG)
     if not lama.endswith("\n"):
         lama += "\n"
-    baru = "".join(_baris_csv(b.sebagai_daftar()) for b in baris)
-    tulis_atomik(path, lama + baru)
-    return path
+    isi = lama + "".join(_baris_csv(b.sebagai_daftar()) for b in baris)
+    if terkunci:
+        alt = nama_alternatif(path)
+        tulis_atomik(alt, isi)
+        ditulis, peringatan = alt, f"Berkas {path.name} sedang terkunci; log holdout run ini ditulis ke {alt.name}"
+    else:
+        ditulis, peringatan = tulis_keluaran(path, isi)
+    if peringatan:
+        peringatan += " (tetap dihitung untuk N/M; berkas itu jangan dihapus)"
+    return ditulis, peringatan
 
 
 @dataclass(frozen=True)
@@ -740,14 +754,25 @@ class RingkasanHoldoutLog:
 
 
 def baca_holdout_log(path: Path) -> RingkasanHoldoutLog:
-    """Baca `holdout_log.csv` (baris berawalan "#" dilewati). Berkas tidak ada → ringkasan kosong."""
+    """Baca `holdout_log.csv` (baris berawalan "#" dilewati) beserta berkas alternatifnya
+    `holdout_log_*.csv` (ditulis saat berkas utama terkunci); baris yang sama dihitung sekali.
+    Berkas tidak ada → ringkasan kosong."""
     path = Path(path)
-    try:
-        teks_berkas = path.read_text(encoding="utf-8-sig")
-    except FileNotFoundError:
+    rekaman: list[dict[str, str]] = []
+    terlihat: set[tuple] = set()
+    for p in [path, *sorted(path.parent.glob(f"{path.stem}_*{path.suffix}"))]:
+        try:
+            teks_berkas = p.read_text(encoding="utf-8-sig")
+        except (FileNotFoundError, PermissionError):
+            continue
+        baris = [b for b in teks_berkas.splitlines() if b.strip() and not b.startswith("#")]
+        for r in csv.DictReader(baris):
+            kunci = tuple(r.get(k, "") for k in KOLOM_HOLDOUT_LOG)
+            if kunci not in terlihat:
+                terlihat.add(kunci)
+                rekaman.append(r)
+    if not rekaman:
         return RingkasanHoldoutLog((), 0, 0, None)
-    baris = [b for b in teks_berkas.splitlines() if b.strip() and not b.startswith("#")]
-    rekaman = list(csv.DictReader(baris))
     waktu_unik = {r.get("waktu", "") for r in rekaman}
     hash_unik = {r.get("hash_aturan", "") for r in rekaman}
     pertama = rekaman[0].get("holdout_mulai") if rekaman else None

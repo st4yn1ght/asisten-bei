@@ -234,7 +234,7 @@ def jalankan_backtest(
                 tanggal_awal=tanggal_awal, tanggal_penilaian=penilaian,
             )
             jd.tandai_melewati_holdout(h, cfg)
-            pembagian = jd.bagi_periode(h, cfg)
+            pembagian = jd.bagi_periode(h, cfg, kal)
             metrik = jd.metrik_semua_periode(pembagian, kal, cfg, close_ihsg=close_ihsg)
             _durasi(f"run {spec.nama} {m}", mulai_run)
             keluar(f"  Run {spec.nama} ({m}): {len(h.tertutup)} transaksi tertutup, {len(h.terbuka)} terbuka")
@@ -335,7 +335,11 @@ def jalankan_backtest(
         ]
         path_log = folder_bt / gb.NAMA_HOLDOUT_LOG
         if baris_log:
-            gb.tambah_holdout_log(folder_bt, baris_log)
+            _ditulis, peringatan_log = gb.tambah_holdout_log(folder_bt, baris_log)
+            if peringatan_log:
+                log.warning(peringatan_log)
+                lap.peringatan.append(peringatan_log)
+                keluar(f"PERINGATAN: {peringatan_log}")
         lap.holdout_log = gb.baca_holdout_log(path_log)
         path_gate = gb.gabung_gate_status(folder_bt, entri, modes)
         lap.gate_status_ditulis = path_gate is not None

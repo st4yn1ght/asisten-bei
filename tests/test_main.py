@@ -67,6 +67,9 @@ class _AksesDilarang(BaseException):
     """Bukan turunan Exception agar tidak tertelan `except Exception` di `main`."""
 
 
+_TIDUR_ASLI = time.sleep
+
+
 @pytest.fixture(autouse=True)
 def _isolasi(monkeypatch):
     upaya: list[str] = []
@@ -472,10 +475,16 @@ def jalankan_proses(argv: list[str], cwd: Path, **env_tambahan: str) -> subproce
     env["PYTHONPATH"] = str(AKAR_PROYEK / "src")
     env["PYTHONUTF8"] = "1"
     env.update(env_tambahan)
-    return subprocess.run(
-        [sys.executable, "-m", "asisten_bei", *argv], cwd=cwd, env=env, capture_output=True,
-        text=True, encoding="utf-8", errors="replace", timeout=300,
-    )
+    # subprocess menunggu proses anak dengan time.sleep bila anak belum di-reap (beban tinggi); itu bukan
+    # tidur milik main (main berjalan di proses anak), jadi larangan _isolasi tidak berlaku di sini.
+    terpasang, time.sleep = time.sleep, _TIDUR_ASLI
+    try:
+        return subprocess.run(
+            [sys.executable, "-m", "asisten_bei", *argv], cwd=cwd, env=env, capture_output=True,
+            text=True, encoding="utf-8", errors="replace", timeout=300,
+        )
+    finally:
+        time.sleep = terpasang
 
 
 def test_proses_sungguhan_cek_kode_0_dengan_disclaimer(akar_uji, tmp_path_factory):

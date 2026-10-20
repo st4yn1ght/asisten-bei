@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -531,6 +532,19 @@ def test_config_berubah_menjadi_bayangan_gerbang_dengan_bagian_yang_berubah(akar
     assert alasan == f"strategi PB: bagian config berubah sejak backtest: {bagian} — jalankan ulang backtest.bat"
 
 
+def test_versi_program_berubah_disebut_versi_bukan_bagian_config(akar_uji, monkeypatch):
+    import asisten_bei
+
+    _tulis_status(_ctx(akar_uji), ["PB"])
+    monkeypatch.setattr(asisten_bei, "__version__", "99.0.0-fiktif")
+    assert gb.alasan_tidak_lolos_ctx(_ctx(akar_uji), "PB", T) == (
+        "strategi PB: versi program berubah sejak backtest — jalankan ulang backtest.bat"
+    )
+    alasan = gb.alasan_tidak_lolos_ctx(_ctx(akar_uji, {"indikator.atr_periode": 15}), "PB", T)
+    assert alasan == ("strategi PB: versi program berubah sejak backtest; bagian config berubah sejak backtest: "
+                      "indikator — jalankan ulang backtest.bat")
+
+
 def test_strategi_bo_berubah_tidak_membatalkan_pb_mr(akar_uji):
     _tulis_status(_ctx(akar_uji), ["PB", "BO", "MR"])
     ctx = _ctx(akar_uji, {"strategi.bo.stop_atr": 2.5})
@@ -598,7 +612,8 @@ def test_holdout_log_dibuat_dengan_disclaimer_lalu_ditambah(tmp_path, atur_waktu
         gb.baris_holdout_log(holdout_mulai=date(2024, 10, 1), hash_aturan="A" * 64, hash_input="I" * 64,
                              strategi="pb", mode="realistis", holdout=m_na),
     ]
-    path = gb.tambah_holdout_log(tmp_path, baris)
+    path, peringatan = gb.tambah_holdout_log(tmp_path, baris)
+    assert peringatan is None
     atur_waktu("2026-10-16T21:00:00+07:00")
     gb.tambah_holdout_log(tmp_path, [
         gb.baris_holdout_log(holdout_mulai=date(2024, 10, 1), hash_aturan="B" * 64, hash_input="I" * 64,
@@ -754,3 +769,32 @@ def test_integrasi_subset_terjangkau_dari_transaksi_mesin():
     assert 0 < s.n <= s.n_holdout
     harap = mt.profit_factor([p.keluar.r for p in s.transaksi])
     assert s.pf_r == harap and s.lemah  # n < 30
+
+
+def test_holdout_log_terkunci_ditulis_ke_nama_alternatif_dan_tetap_dihitung(tmp_path, monkeypatch, atur_waktu):
+    """§20.2: berkas keluaran terkunci (dibuka di Excel) → nama alternatif + peringatan, run berlanjut. Baris di
+    berkas alternatif tetap dihitung untuk N/M."""
+    def baris(h: str):
+        return [gb.baris_holdout_log(holdout_mulai=date(2024, 10, 1), hash_aturan=h, hash_input="I",
+                                     strategi="pb", mode="edge", holdout=_m([]))]
+
+    utama, _ = gb.tambah_holdout_log(tmp_path, baris("A"))
+    asli = os.replace
+
+    def replace_terkunci(src, dst, *a, **k):
+        if Path(dst).name == "holdout_log.csv":
+            raise PermissionError(13, "terkunci (FIKTIF)")
+        return asli(src, dst, *a, **k)
+
+    monkeypatch.setattr(os, "replace", replace_terkunci)
+    atur_waktu("2026-10-16T21:00:00+07:00")
+    alt, peringatan = gb.tambah_holdout_log(tmp_path, baris("B"))
+    monkeypatch.setattr(os, "replace", asli)
+    assert alt.name == "holdout_log_210000.csv" and "terkunci" in peringatan
+    assert len(utama.read_text(encoding="utf-8").splitlines()) == 3  # berkas utama tidak berubah
+    r = gb.baca_holdout_log(utama)
+    assert (r.n_dilihat, r.m_konfigurasi, r.n_baris) == (2, 2, 2)  # baris lama di alternatif tidak dobel
+    atur_waktu("2026-10-17T21:00:00+07:00")
+    gb.tambah_holdout_log(tmp_path, baris("A"))  # berkas utama sudah bisa ditulis lagi
+    r = gb.baca_holdout_log(utama)
+    assert (r.n_dilihat, r.m_konfigurasi, r.n_baris) == (3, 2, 3)

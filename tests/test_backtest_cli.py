@@ -577,3 +577,7 @@ def test_data_berakhir_sebelum_holdout_tanpa_baris_log(tmp_path):
     assert gate["strategi"]["MR"]["lolos"] is False  # G1: tanpa transaksi holdout
     md = (proyek.folder_run()[0] / "ringkasan.md").read_text(encoding="utf-8")
     assert "Holdout belum dihitung" in md
+    # Tabel tidak menampilkan angka untuk holdout yang belum tercapai, dan jendela terakhir dipotong di akhir data.
+    assert "| Holdout | belum tercapai oleh data |" in md
+    assert "| Holdout | 2025-09-01" not in md
+    assert "| 2025 (parsial) | 2025-01-01 … 2025-06-30 |" in md

@@ -78,16 +78,29 @@ def tanggal_penilaian(kal: "Kalender", cfg: "Config") -> tuple[date, ...]:
     return (akhir_insample(kal, cfg),)
 
 
-def daftar_jendela(mulai: date, holdout_mulai: date) -> list[Periode]:
-    """Satu jendela per tahun kalender di in-sample [mulai, holdout_mulai − 1 hari]. Parsial bila tahun itu
-    tidak tercakup dari 1 Januari sampai 31 Desember."""
+def daftar_jendela(
+    mulai: date,
+    holdout_mulai: date,
+    kal: "Kalender | None" = None,
+    akhir_maks: date | None = None,
+) -> list[Periode]:
+    """Satu jendela per tahun kalender di in-sample [mulai, holdout_mulai − 1 hari], dipotong di `akhir_maks`
+    (akhir data bila holdout belum tercapai). Parsial bila tahun itu tidak tercakup dari hari bursa pertama
+    sampai hari bursa terakhirnya (tanpa `kal`: 1 Januari sampai 31 Desember)."""
     akhir = holdout_mulai - timedelta(days=1)
+    if akhir_maks is not None:
+        akhir = min(akhir, akhir_maks)
     hasil = []
     for y in range(mulai.year, akhir.year + 1):
         a, b = max(mulai, date(y, 1, 1)), min(akhir, date(y, 12, 31))
         if a > b:
             continue
-        hasil.append(Periode(JENDELA, a, b, y, a > date(y, 1, 1) or b < date(y, 12, 31)))
+        if kal is None:
+            awal_y, akhir_y = date(y, 1, 1), date(y, 12, 31)
+        else:
+            awal_y = kal.hari_bursa_berikut(date(y - 1, 12, 31))
+            akhir_y = kal.hari_bursa_sebelum(date(y + 1, 1, 1))
+        hasil.append(Periode(JENDELA, a, b, y, a > awal_y or b < akhir_y))
     return hasil
 
 
@@ -178,15 +191,22 @@ def _tampilan(
             # Tanda yang didapat sesudah batas_tutup (mis. ANOMALI di holdout) tidak ikut statistik periode ini.
             dasar = None if batas_tutup == akhir_data else p.meta.get("tanda_pada", {}).get(batas_tutup)
             terbuka.append(mt.transaksi_terbuka(p, batas_tutup, nilai, tanda_terbuka, dasar))
-    dilewati = tuple(s for s in hasil.dilewati if periode.mulai <= s.tanggal <= periode.akhir)
+    # Sinyal yang ordernya baru diputuskan sesudah batas_tutup (open hari pertama holdout) belum punya hasil
+    # pada batas_tutup; status_isi-nya memakai harga holdout, jadi tidak ikut tampilan in-sample (§16.4).
+    dilewati = tuple(
+        s for s in hasil.dilewati
+        if periode.mulai <= s.tanggal <= periode.akhir
+        and (batas_tutup >= akhir_data or s.tanggal_isi is None or s.tanggal_isi <= batas_tutup)
+    )
     akhir_ekuitas = min(periode.akhir, batas_tutup)
     return TampilanPeriode(
         periode, _irisan(hasil.ekuitas, periode.mulai, akhir_ekuitas), tuple(tertutup), tuple(terbuka), dilewati
     )
 
 
-def bagi_periode(hasil: "HasilSimulasi", cfg: "Config") -> PembagianPeriode:
-    """Bagi hasil simulasi satu run × mode ke in-sample, holdout, penuh, dan jendela (§16.4)."""
+def bagi_periode(hasil: "HasilSimulasi", cfg: "Config", kal: "Kalender | None" = None) -> PembagianPeriode:
+    """Bagi hasil simulasi satu run × mode ke in-sample, holdout, penuh, dan jendela (§16.4). `kal` dipakai
+    untuk label "parsial" jendela (hari bursa pertama/terakhir tahun itu)."""
     if not hasil.ekuitas:
         raise ValueError("hasil simulasi tanpa baris ekuitas")
     mulai, holdout_mulai = cfg.backtest.mulai, cfg.backtest.holdout_mulai
@@ -205,7 +225,7 @@ def bagi_periode(hasil: "HasilSimulasi", cfg: "Config") -> PembagianPeriode:
     penuh = _tampilan(p_pn, hasil, batas_tutup=akhir_data, akhir_data=akhir_data)
     jendela = tuple(
         _tampilan(pj, hasil, batas_tutup=akhir_is, akhir_data=akhir_data, tanda_terbuka=tanda_is)
-        for pj in daftar_jendela(mulai, holdout_mulai)
+        for pj in daftar_jendela(mulai, holdout_mulai, kal, None if ada_holdout else akhir_is)
         if pj.mulai <= akhir_is
     )
     return PembagianPeriode(in_sample, holdout, penuh, jendela, akhir_is, akhir_data)

@@ -1813,3 +1813,107 @@ def test_harga_isi_sama_dengan_stop_tidak_error_dan_keluar_hari_entry(rasio, sli
                         harga_maks="1050", stop=stop, i_akhir=E0 + 2, cfg=cfg)
     assert j.status_isi == ex.TERISI and j.pos.target is None
     assert j.keluar is not None and j.keluar.alasan == ex.STOP_GAP_HARI_ENTRY
+
+
+# --- Split yang belum disesuaikan sumber (§8.4): cache nominal di kedua sisi split --------------------------
+# Seri cache = harga nominal apa adanya, split 1:5 tercatat pada X → q = close_X / close_{X−1} ≈ 1/5 → split
+# dianggap belum disesuaikan dan tidak ikut F(d) (F = 1 di semua tanggal). Posisi wajib dikonversi pada X agar
+# Rupiah sama dengan dunia yang sudah disesuaikan (test_split_dalam_masa_tahan_pnl_rupiah_sama_dengan_hitung_tangan_nominal).
+
+
+def test_split_belum_disesuaikan_posisi_dikonversi_pnl_rupiah_sama_dengan_nominal():
+    pp = buat_pasar({KODE: NOMINAL_SPLIT}, split=SPLIT)
+    assert pp.tampilan(tgl(SPLIT_X)).split_belum_disesuaikan(KODE) == [(tgl(SPLIT_X), 5.0)]
+    assert pp.tampilan(tgl(SPLIT_X)).faktor_split(KODE, tgl(S0)) == 1.0  # tidak ikut F(d)
+    j = jalankan(pp, order(i_sinyal=S0, faktor="1"), E0, E0 + 3)
+    p, k = j.pos, j.keluar
+    # Sesudah konversi: 100 × 5 = 500 lembar; level ÷ 5; nilai nominal pada tanggal entry tidak berubah.
+    assert p.lembar == 500 and p.faktor_entry == 5
+    assert p.harga_beli == D("200.2") and p.harga_beli * p.faktor_entry == D("1001")
+    assert p.stop_awal == D("190") and p.target == D("1103") / 5
+    assert p.biaya_beli_idr == BIAYA_DASAR and p.risiko_awal_idr == RISIKO_DASAR
+    assert j.nilai[tgl(E0 + 1)] == j.nilai[tgl(SPLIT_X)] == D("101000")  # nilai tidak melompat
+    assert k.tanggal == tgl(SPLIT_X + 1) and k.alasan == ex.STOP and k.harga == D("189.81")
+    assert k.pnl_idr == D("-5582.4125")
+    assert ex.ANOMALI in p.tanda
+
+
+def test_split_terbalik_belum_disesuaikan_posisi_dikonversi():
+    # Rasio 0,2 (5 lembar lama → 1 lembar baru): harga nominal ×5 pada X. 100 lembar → 20; stop 950 → 4.750.
+    # X+1 low 4.750 ≤ stop → STOP di 4.750 × 0,999 = 4.745,25 × 20 = 94.905 → P&L −5.582,4125 (sama seperti di atas).
+    split = {KODE: pd.Series([0.2], index=pd.DatetimeIndex([HARI[SPLIT_X]]))}
+    nominal = [*AWAL, NORMAL, (1010, 1020, 1000, 1010), (5050, 5100, 5000, 5050), (5000, 5005, 4750, 4875)]
+    pp = buat_pasar({KODE: nominal}, split=split)
+    assert pp.tampilan(tgl(SPLIT_X)).split_belum_disesuaikan(KODE) == [(tgl(SPLIT_X), 0.2)]
+    j = jalankan(pp, order(i_sinyal=S0, faktor="1"), E0, E0 + 3)
+    p, k = j.pos, j.keluar
+    assert p.lembar == 20 and p.stop == D("4750")
+    assert j.nilai[tgl(E0 + 1)] == j.nilai[tgl(SPLIT_X)] == D("101000")
+    assert k.tanggal == tgl(SPLIT_X + 1) and k.alasan == ex.STOP and k.harga == D("4745.25")
+    assert k.pnl_idr == D("-5582.4125") and ex.ANOMALI in p.tanda
+
+
+def test_split_belum_disesuaikan_antara_sinyal_dan_entry_order_dikonversi():
+    # Sama dengan test_split_sebelum_entry_harga_maks_nominal_dibandingkan_di_ruang_adj, tetapi cache nominal dan
+    # split tidak ikut F: order (faktor_sinyal 1) dikonversi ke faktor 5 → harga_maks 210 di skala hari entry.
+    x = E0
+    split = {KODE: pd.Series([5.0], index=pd.DatetimeIndex([HARI[x]]))}
+    pp = buat_pasar({KODE: [*AWAL, (210, 212, 205, 210)]}, split=split)
+    j = jalankan(pp, order(i_sinyal=S0, faktor="1"), E0, E0)
+    assert j.status_isi == ex.TERISI
+    assert j.pos.lembar == 500 and j.pos.harga_beli == D("210") and j.pos.biaya_beli_idr == D("105157.5")
+    assert ex.ANOMALI in j.pos.tanda
+    pp_gap = buat_pasar({KODE: [*AWAL, (211, 212, 205, 210)]}, split=split)
+    assert jalankan(pp_gap, order(i_sinyal=S0, faktor="1"), E0, E0).status_isi == ex.BATAL_GAP
+
+
+def test_split_belum_disesuaikan_close_kemarin_ara_arb_dalam_skala_hari_ini():
+    split = {KODE: pd.Series([5.0], index=pd.DatetimeIndex([HARI[SPLIT_X]]))}
+    pp = buat_pasar({KODE: NOMINAL_SPLIT}, split=split)
+    b = ex.bar_hari(pp.tampilan(tgl(SPLIT_X)), KODE)
+    assert b.close_acuan == D("202")  # close E+1 1.010 ÷ 5, bukan 1.010 (yang akan tampak seperti ARB)
+
+
+def test_split_belum_disesuaikan_trailing_bo_memakai_puncak_pra_split_dibagi_rasio():
+    # BO_BAR sampai E+4 (trail 1.012), lalu split 1:5 belum disesuaikan pada E+5 dan 12 bar datar pasca-split.
+    # Puncak pra-split 1.120 ÷ 5 = 224; tanpa pembagian, HHV 1.120 − 3 × ATR membuat trail melompat jauh di atas
+    # harga (≈ 1.099) begitu ATR mereda, lalu keluar TRAILING_GAP palsu.
+    # Setelah ATR mereda, trail naik ke ⌈224 − 3 × ATR⌉ (puncak pra-split ÷ 5, bukan high pasca-split 221).
+    x = BO_E + 5
+    pasca = [(218, 221, 214, 218)] * 20
+    split = {KODE: pd.Series([5.0], index=pd.DatetimeIndex([HARI[x]]))}
+    pp = buat_pasar({KODE: [*BO_BAR[:8], *pasca]}, CFG_ATR3, split=split)
+    akhir = x + len(pasca) - 1
+    j = jalankan(pp, _order_bo(), BO_E, akhir)
+    assert j.keluar is None and j.pos.lembar == 500 and ex.ANOMALI in j.pos.tanda
+    trail = [j.stop[tgl(i)] for i in range(x, x + len(pasca))]
+    assert trail[0] == D("1012") / 5
+    assert all(D("1012") / 5 <= s <= 224 for s in trail)
+    assert all(b >= a for a, b in zip(trail, trail[1:]))
+    atr = D(repr(float(pp.tampilan(tgl(akhir)).baris(KODE)["atr"])))
+    harap = AturanBEI(CFG_ATR3).bulat_atas(ke_desimal_harga(224 - 3 * atr), tgl(akhir)).nilai
+    assert harap > D("1012") / 5 and trail[-1] == harap
+
+
+def test_split_belum_disesuaikan_keluar_sma_ditahan_selama_sma_memuat_bar_pra_split():
+    # MR, split terbalik 0,2 belum disesuaikan pada X = E+2: close 4.950 jauh di atas SMA5 campuran (≈ 1.790),
+    # jadi tanpa aturan ini KELUAR_SMA terjadwal pada close X. SMA5 bersih mulai X+4.
+    split = {KODE: pd.Series([0.2], index=pd.DatetimeIndex([HARI[SPLIT_X]]))}
+    nominal = [*AWAL, NORMAL, (990, 1000, 985, 990)] + [(4950, 5000, 4900, 4950)] * 5
+    pp = buat_pasar({KODE: nominal}, split=split)
+    od = order(i_sinyal=S0, strategi="MR", stop="900", target_r=None)
+    j = jalankan(pp, od, E0, SPLIT_X + 4)
+    assert [j.jadwal[tgl(i)] for i in range(SPLIT_X, SPLIT_X + 3)] == [None, None, ex.STOP_WAKTU]  # hari ke-5
+    assert j.keluar.alasan == ex.STOP_WAKTU and j.keluar.tanggal == tgl(SPLIT_X + 3)
+
+
+def test_split_belum_disesuaikan_lewat_simulasikan_ekuitas_sama_dengan_dunia_disesuaikan():
+    pp = buat_pasar({KODE: NOMINAL_SPLIT}, split=SPLIT)  # cache nominal, split tidak ikut F
+    pp0 = buat_pasar({KODE: NOMINAL_TANPA_SPLIT})
+    akhir = I0 + len(NOMINAL_SPLIT) - 1
+    h = sim(pp, {S0: [sinyal(KODE)]}, I0, akhir, mode="realistis")
+    h0 = sim(pp0, {S0: [sinyal(KODE)]}, I0, akhir, mode="realistis")
+    (p,), (p0,) = h.transaksi, h0.transaksi
+    assert p.lembar == p0.lembar * 5 and ex.ANOMALI in p.tanda
+    assert p.keluar.alasan == p0.keluar.alasan == ex.STOP and p.keluar.pnl_idr == p0.keluar.pnl_idr
+    assert [r.ekuitas for r in h.ekuitas] == [r.ekuitas for r in h0.ekuitas]

@@ -471,7 +471,8 @@ def per_tahun(rm: RunMode, lap: LaporanBacktest) -> list[BarisTahun]:
         rows = [baris[i0], *(b for b in baris[i0 + 1 :] if b.tanggal.year == y)]
         hari = rows[1:]
         akhir_tahun = lap.kalender.hari_bursa_sebelum(date(y + 1, 1, 1))
-        parsial = (y == mulai.year and mulai > date(y, 1, 1)) or (y == akhir.year and akhir < akhir_tahun)
+        awal_tahun = lap.kalender.hari_bursa_berikut(date(y - 1, 12, 31))
+        parsial = (y == mulai.year and mulai > awal_tahun) or (y == akhir.year and akhir < akhir_tahun)
         hasil.append(BarisTahun(
             tahun=y,
             parsial=parsial,
@@ -626,6 +627,18 @@ def _label_periode(rm: RunMode, m: jd.MetrikPeriode) -> str:
     return label
 
 
+TEKS_HOLDOUT_BELUM = "belum tercapai oleh data"
+
+
+def _holdout_belum(rm: RunMode, m: jd.MetrikPeriode) -> bool:
+    """Periode holdout yang belum dicapai data: tidak ada angka untuk ditampilkan (§16.4)."""
+    return m.periode.jenis == jd.HOLDOUT and not rm.ada_holdout
+
+
+def _baris_holdout_belum(rm: RunMode, m: jd.MetrikPeriode, n_kolom: int) -> list[str]:
+    return [_label_periode(rm, m), TEKS_HOLDOUT_BELUM, *([_STRIP] * (n_kolom - 2))]
+
+
 def _tabel_ekuitas(rm: RunMode) -> _Tabel:
     kolom = ["Periode", "Rentang", "Titik awal", "E awal", "E akhir", "Return", "CAGR", "Max DD",
              "IHSG return", "IHSG CAGR", "IHSG Max DD", "Selisih CAGR"]
@@ -633,6 +646,9 @@ def _tabel_ekuitas(rm: RunMode) -> _Tabel:
     for m in rm.metrik:
         ek, ih = m.ekuitas, m.ihsg
         rentang = f"{m.periode.mulai.isoformat()} … {m.periode.akhir.isoformat()}"
+        if _holdout_belum(rm, m):
+            baris.append(_baris_holdout_belum(rm, m, len(kolom)))
+            continue
         if ek is None:
             baris.append([_label_periode(rm, m), rentang, _STRIP, *([_STRIP] * 9)])
             continue
@@ -652,6 +668,9 @@ def _tabel_transaksi(rm: RunMode) -> _Tabel:
     baris = []
     for m in rm.metrik:
         t = m.transaksi
+        if _holdout_belum(rm, m):
+            baris.append(_baris_holdout_belum(rm, m, len(kolom)))
+            continue
         baris.append([
             _label_periode(rm, m) + (" ✓G5" if m.memenuhi_syarat_g5 else ""), str(t.n_tertutup), str(t.n_terbuka),
             _pct_angka(t.win_rate_pct), t.pf_idr.teks(), t.pf_r.teks(), _rp(t.ekspektansi_idr),
@@ -670,6 +689,9 @@ def _tabel_dilewati_tanda(rm: RunMode) -> _Tabel:
     baris = []
     for m in rm.metrik:
         t, ta = m.transaksi, m.transaksi.tanpa_anomali
+        if _holdout_belum(rm, m):
+            baris.append(_baris_holdout_belum(rm, m, len(kolom)))
+            continue
         tanpa = (f"tertutup {ta.n_tertutup}, win rate {_pct_angka(ta.win_rate_pct)}, PF_R {ta.pf_r.teks()}, "
                  f"ekspektansi {_r(ta.ekspektansi_r, 4)}, max DD {_r(ta.max_drawdown_r)}") if ta is not None else _STRIP
         baris.append([_label_periode(rm, m), _hitungan(m.dilewati), _hitungan(t.per_tanda), tanpa])
@@ -683,6 +705,9 @@ def _tabel_biaya(rm: RunMode) -> _Tabel:
     baris = []
     for m in rm.metrik:
         t, ek = m.transaksi, m.ekuitas
+        if _holdout_belum(rm, m):
+            baris.append(_baris_holdout_belum(rm, m, len(kolom)))
+            continue
         dd = ek.drawdown if ek else None
         jejak = (f"{_tgl(dd.tanggal_puncak)} → {_tgl(dd.tanggal_lembah)} → "
                  f"{_tgl(dd.tanggal_pulih) if dd.tanggal_pulih else 'belum pulih'}") if dd and dd.tanggal_lembah else _STRIP
@@ -844,6 +869,8 @@ def _blok_diagnostik(lap: LaporanBacktest) -> list:
     pf = pf_r_holdout_acak(lap)
     if pf is None:
         hasil.append(_Paragraf("Tidak dinilai: memerlukan run acak mode edge yang mencapai holdout.", "catatan"))
+    elif pf.n_menang == 0 and pf.n_kalah == 0:
+        hasil.append(_Paragraf("Tidak dinilai: ACAK tanpa transaksi tertutup di holdout.", "catatan"))
     elif acak_mencurigakan(lap):
         hasil.append(_Paragraf(f"{TEKS_ACAK} (PF_R holdout ACAK {pf.teks()} > {_a(cfg.backtest.maks_pf_r_acak)}).",
                                "banner"))
@@ -859,8 +886,9 @@ def _blok_diagnostik(lap: LaporanBacktest) -> list:
     if lap.riwayat_ada:
         tanpa = lap.riwayat_tanpa_data
         hasil.append(_Paragraf(
-            f"universe_history.csv dipakai. Konstituen historis tanpa data di sumber mana pun: {len(tanpa)}"
-            + (f" ({', '.join(tanpa)})" if tanpa else "") + ". Ini sisa bias yang tidak bisa dihilangkan dengan yfinance.",
+            f"universe_history.csv dipakai. Konstituen historis tanpa data yang dapat dipakai: {len(tanpa)}"
+            + (f" ({', '.join(tanpa)}; alasannya di berkas kualitas)" if tanpa else "")
+            + ". Ini sisa bias yang tidak bisa dihilangkan dengan yfinance.",
             "peringatan" if tanpa else ""))
     else:
         hasil.append(_Paragraf(TEKS_SURVIVORSHIP, "banner"))

@@ -536,6 +536,34 @@ def test_label_jendela_parsial_dan_penuh():
     assert [tp.periode.label for tp in pb.semua()] == ["In-sample", "Holdout", "Penuh", "2023 (parsial)", "2024 (parsial)"]
 
 
+def test_label_parsial_memakai_hari_bursa_pertama_dan_terakhir():
+    # 2017-01-01 Minggu → hari bursa pertama 2017-01-02; 2016-12-31 Sabtu → hari bursa terakhir 2016-12-30.
+    j = jd.daftar_jendela(date(2017, 1, 2), date(2018, 1, 1), KAL)
+    assert [(p.label, p.parsial) for p in j] == [("2017", False)]
+    assert jd.daftar_jendela(date(2017, 1, 2), date(2018, 1, 1))[0].parsial  # tanpa kalender: tanggal kalender
+    j = jd.daftar_jendela(date(2016, 1, 1), date(2017, 6, 1), KAL, akhir_maks=date(2016, 12, 30))
+    assert [(p.label, p.akhir) for p in j] == [("2016", date(2016, 12, 30))]
+
+
+def test_jendela_dipotong_di_akhir_data_bila_holdout_belum_tercapai():
+    cfg = cfg_uji({"backtest.mulai": MULAI.isoformat(), "backtest.holdout_mulai": "2025-01-01"})
+    pb = jd.bagi_periode(_hasil_periode()[0], cfg, KAL)
+    j = {tp.periode.kunci: tp.periode for tp in pb.jendela}
+    assert (j["2024"].mulai, j["2024"].akhir, j["2024"].label) == (date(2024, 1, 1), AKHIR, "2024 (parsial)")
+
+
+def test_sinyal_dilewati_yang_diputuskan_di_open_holdout_tidak_masuk_insample():
+    # Sinyal pada akhir in-sample (2024-02-29) dibatalkan di open holdout pertama (2024-03-01): hasilnya memakai
+    # harga holdout, jadi hanya masuk periode penuh (menurut tanggal sinyal), bukan in-sample atau jendelanya.
+    h, _ = _hasil_periode()
+    h.dilewati.append(mesin.SinyalDilewati(date(2024, 2, 29), "W", "PB", 1.0, "REKOMENDASI", "BATAL_GAP", "",
+                                           date(2024, 3, 1)))
+    pb = jd.bagi_periode(h, CFG_PERIODE, KAL)
+    assert [s.kode for s in pb.in_sample.dilewati] == ["X", "Y"]
+    assert "W" not in [s.kode for tp in pb.jendela for s in tp.dilewati]
+    assert "W" in [s.kode for s in pb.penuh.dilewati]
+
+
 def test_tanggal_penilaian_untuk_mesin():
     assert jd.akhir_insample(KAL, CFG_PERIODE) == date(2024, 2, 29)
     assert jd.tanggal_penilaian(KAL, CFG_PERIODE) == (date(2024, 2, 29),)
