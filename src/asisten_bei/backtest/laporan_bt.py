@@ -476,7 +476,7 @@ def per_tahun(rm: RunMode, lap: LaporanBacktest) -> list[BarisTahun]:
         hasil.append(BarisTahun(
             tahun=y,
             parsial=parsial,
-            memuat_holdout=date(y, 12, 31) >= holdout,
+            memuat_holdout=date(y, 12, 31) >= holdout and akhir >= holdout,
             seri=mt.ringkas_seri([(b.tanggal, b.ekuitas) for b in rows]),
             ihsg=mt.metrik_ihsg(rows, lap.close_ihsg),
             n_masuk=sum(1 for p in rm.hasil.transaksi if p.tanggal_entry.year == y),
@@ -854,9 +854,13 @@ def _blok_diagnostik(lap: LaporanBacktest) -> list:
 
     hasil.append(_Judul(3, "Disiplin holdout (§16.4)"))
     log = lap.holdout_log
-    if log is not None and log.n_baris:
-        hasil.append(_Paragraf(log.teks(), "" if log.murni else "peringatan"))
-        if log.holdout_mulai_pertama and log.holdout_mulai_pertama != cfg.backtest.holdout_mulai.isoformat():
+    if log is not None and (log.n_baris or log.tidak_terbaca):
+        hasil.append(_Paragraf(log.teks(), "peringatan" if log.perlu_peringatan else ""))
+        if not log.lengkap:
+            hasil.append(_Paragraf(
+                "holdout_mulai tidak dapat dibandingkan dengan nilai pertama di holdout_log.csv (berkas tidak "
+                "terbaca).", "peringatan"))
+        elif log.holdout_mulai_pertama and log.holdout_mulai_pertama != cfg.backtest.holdout_mulai.isoformat():
             hasil.append(_Paragraf(
                 f"PERINGATAN: holdout_mulai {cfg.backtest.holdout_mulai.isoformat()} berbeda dari nilai pertama di "
                 f"holdout_log.csv ({log.holdout_mulai_pertama}).", "peringatan"))
@@ -954,7 +958,8 @@ def dokumen(lap: LaporanBacktest, grafik: dict[str, list[tuple[str, bytes, str]]
         d.append(_Paragraf(TEKS_SURVIVORSHIP, "banner"))
     if acak_mencurigakan(lap):
         d.append(_Paragraf(TEKS_ACAK, "banner"))
-    if lap.holdout_log is not None and lap.holdout_log.n_baris and not lap.holdout_log.murni:
+    if (lap.holdout_log is not None and (lap.holdout_log.n_baris or lap.holdout_log.tidak_terbaca)
+            and lap.holdout_log.perlu_peringatan):
         d.append(_Paragraf(lap.holdout_log.teks(), "banner"))
     for kode, s in lap.subset.items():
         if s.lemah:
@@ -1290,7 +1295,7 @@ def ringkasan_terminal(lap: LaporanBacktest, folder: str | Path | None = None) -
                 hasil.append(f"    PERINGATAN: {TEKS_SUBSET_LEMAH} (subset terjangkau n {sub.n}, PF_R {sub.pf_r.teks()})")
     else:
         hasil.append("Gerbang tidak dinilai pada run ini (memerlukan mode edge dan strategi PB/BO/MR).")
-    if lap.holdout_log is not None and lap.holdout_log.n_baris:
+    if lap.holdout_log is not None and (lap.holdout_log.n_baris or lap.holdout_log.tidak_terbaca):
         hasil.append(lap.holdout_log.teks())
     if acak_mencurigakan(lap):
         hasil.append(f"PERINGATAN: {TEKS_ACAK}")

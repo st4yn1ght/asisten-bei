@@ -37,7 +37,7 @@ from .. import exit as ex
 from ..biaya import ke_decimal
 from ..config import resolusi_konteks
 from ..kondisi_pasar import parameter_entry
-from ..operasional import nama_alternatif, tulis_atomik, tulis_keluaran
+from ..operasional import nama_alternatif, tulis_atomik
 from ..sizing import hitung_sizing
 from . import metrik as mt
 
@@ -719,15 +719,28 @@ def tambah_holdout_log(folder_bt: Path, baris: Iterable[BarisHoldoutLog]) -> tup
     if not lama.endswith("\n"):
         lama += "\n"
     isi = lama + "".join(_baris_csv(b.sebagai_daftar()) for b in baris)
-    if terkunci:
-        alt = nama_alternatif(path)
-        tulis_atomik(alt, isi)
-        ditulis, peringatan = alt, f"Berkas {path.name} sedang terkunci; log holdout run ini ditulis ke {alt.name}"
-    else:
-        ditulis, peringatan = tulis_keluaran(path, isi)
-    if peringatan:
-        peringatan += " (tetap dihitung untuk N/M; berkas itu jangan dihapus)"
-    return ditulis, peringatan
+    if not terkunci:
+        try:
+            tulis_atomik(path, isi)
+            return path, None
+        except PermissionError:
+            pass
+    alt = _alternatif_bebas(path)  # tidak pernah menimpa berkas alternatif dari run lain
+    tulis_atomik(alt, isi)
+    return alt, (
+        f"Berkas {path.name} sedang terkunci (mungkin dibuka di Excel); log holdout run ini ditulis ke {alt.name} "
+        "(tetap dihitung untuk N/M; berkas itu jangan dihapus)"
+    )
+
+
+def _alternatif_bebas(path: Path) -> Path:
+    """`nama_alternatif(path)`, ditambah `_2`, `_3`, ... bila nama itu sudah ada."""
+    alt = nama_alternatif(path)
+    dasar, i = alt, 2
+    while alt.exists():
+        alt = dasar.with_name(f"{dasar.stem}_{i}{dasar.suffix}")
+        i += 1
+    return alt
 
 
 @dataclass(frozen=True)
@@ -735,7 +748,8 @@ class RingkasanHoldoutLog:
     baris: tuple[dict[str, str], ...]
     n_dilihat: int  # N: banyaknya run backtest (nilai `waktu` berbeda) yang menghitung holdout
     m_konfigurasi: int  # M: banyaknya hash_aturan berbeda
-    holdout_mulai_pertama: str | None
+    holdout_mulai_pertama: str | None  # holdout_mulai pada baris dengan `waktu` paling awal
+    tidak_terbaca: tuple[str, ...] = ()  # berkas log yang ada tetapi tidak bisa dibaca (terkunci)
 
     @property
     def n_baris(self) -> int:
@@ -745,9 +759,23 @@ class RingkasanHoldoutLog:
     def murni(self) -> bool:
         return self.m_konfigurasi <= 1
 
+    @property
+    def lengkap(self) -> bool:
+        return not self.tidak_terbaca
+
+    @property
+    def perlu_peringatan(self) -> bool:
+        return not self.murni or not self.lengkap
+
     def teks(self) -> str:
-        """"Holdout telah dilihat N kali dengan M konfigurasi aturan berbeda." (+ peringatan bila M > 1)."""
-        t = f"Holdout telah dilihat {self.n_dilihat} kali dengan {self.m_konfigurasi} konfigurasi aturan berbeda."
+        """"Holdout telah dilihat N kali dengan M konfigurasi aturan berbeda." (+ peringatan bila M > 1, atau bila
+        ada berkas log yang tidak terbaca sehingga N/M hanya batas bawah)."""
+        if self.lengkap:
+            t = f"Holdout telah dilihat {self.n_dilihat} kali dengan {self.m_konfigurasi} konfigurasi aturan berbeda."
+        else:
+            t = (f"Holdout telah dilihat sedikitnya {self.n_dilihat} kali dengan sedikitnya {self.m_konfigurasi} "
+                 f"konfigurasi aturan berbeda. PERINGATAN: {', '.join(self.tidak_terbaca)} tidak terbaca (mungkin "
+                 "sedang dibuka di Excel); angka ini tidak lengkap dan kemurnian holdout tidak dapat dipastikan.")
         if not self.murni:
             t += " PERINGATAN: holdout tidak lagi murni karena sudah dilihat dengan lebih dari satu konfigurasi aturan."
         return t
@@ -760,10 +788,14 @@ def baca_holdout_log(path: Path) -> RingkasanHoldoutLog:
     path = Path(path)
     rekaman: list[dict[str, str]] = []
     terlihat: set[tuple] = set()
+    tidak_terbaca: list[str] = []
     for p in [path, *sorted(path.parent.glob(f"{path.stem}_*{path.suffix}"))]:
         try:
             teks_berkas = p.read_text(encoding="utf-8-sig")
-        except (FileNotFoundError, PermissionError):
+        except FileNotFoundError:
+            continue
+        except PermissionError:
+            tidak_terbaca.append(p.name)
             continue
         baris = [b for b in teks_berkas.splitlines() if b.strip() and not b.startswith("#")]
         for r in csv.DictReader(baris):
@@ -772,8 +804,8 @@ def baca_holdout_log(path: Path) -> RingkasanHoldoutLog:
                 terlihat.add(kunci)
                 rekaman.append(r)
     if not rekaman:
-        return RingkasanHoldoutLog((), 0, 0, None)
+        return RingkasanHoldoutLog((), 0, 0, None, tuple(tidak_terbaca))
     waktu_unik = {r.get("waktu", "") for r in rekaman}
     hash_unik = {r.get("hash_aturan", "") for r in rekaman}
-    pertama = rekaman[0].get("holdout_mulai") if rekaman else None
-    return RingkasanHoldoutLog(tuple(rekaman), len(waktu_unik), len(hash_unik), pertama)
+    pertama = min(rekaman, key=lambda r: r.get("waktu", "")).get("holdout_mulai")
+    return RingkasanHoldoutLog(tuple(rekaman), len(waktu_unik), len(hash_unik), pertama, tuple(tidak_terbaca))

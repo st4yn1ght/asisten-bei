@@ -798,3 +798,57 @@ def test_holdout_log_terkunci_ditulis_ke_nama_alternatif_dan_tetap_dihitung(tmp_
     gb.tambah_holdout_log(tmp_path, baris("A"))  # berkas utama sudah bisa ditulis lagi
     r = gb.baca_holdout_log(utama)
     assert (r.n_dilihat, r.m_konfigurasi, r.n_baris) == (3, 2, 3)
+
+
+def _baris_log(h: str, holdout_mulai: date = date(2024, 10, 1)):
+    return [gb.baris_holdout_log(holdout_mulai=holdout_mulai, hash_aturan=h, hash_input="I",
+                                 strategi="pb", mode="edge", holdout=_m([]))]
+
+
+def _kunci_tulis(monkeypatch, nama: str = "holdout_log.csv"):
+    asli = os.replace
+
+    def replace_terkunci(src, dst, *a, **k):
+        if Path(dst).name == nama:
+            raise PermissionError(13, "terkunci (FIKTIF)")
+        return asli(src, dst, *a, **k)
+
+    monkeypatch.setattr(os, "replace", replace_terkunci)
+
+
+def test_holdout_log_tidak_terbaca_n_m_disebut_batas_bawah(tmp_path, monkeypatch, atur_waktu):
+    utama, _ = gb.tambah_holdout_log(tmp_path, _baris_log("A"))
+    atur_waktu("2026-10-16T21:00:00+07:00")
+    gb.tambah_holdout_log(tmp_path, _baris_log("B"))
+    asli = Path.read_text
+
+    def baca_terkunci(self, *a, **k):
+        if self.name == "holdout_log.csv":
+            raise PermissionError(13, "terkunci (FIKTIF)")
+        return asli(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", baca_terkunci)
+    _kunci_tulis(monkeypatch)
+    atur_waktu("2026-10-17T21:00:00+07:00")
+    alt, peringatan = gb.tambah_holdout_log(tmp_path, _baris_log("A", date(2024, 11, 1)))
+    assert alt.name == "holdout_log_210000.csv" and "terkunci" in peringatan
+    r = gb.baca_holdout_log(utama)
+    assert r.tidak_terbaca == ("holdout_log.csv",) and not r.lengkap and r.perlu_peringatan
+    assert (r.n_dilihat, r.m_konfigurasi) == (1, 1)  # hanya baris yang terbaca
+    assert "sedikitnya 1 kali dengan sedikitnya 1 konfigurasi" in r.teks() and "tidak terbaca" in r.teks()
+    monkeypatch.setattr(Path, "read_text", asli)
+    r = gb.baca_holdout_log(utama)
+    assert r.lengkap and (r.n_dilihat, r.m_konfigurasi) == (3, 2)
+    assert r.holdout_mulai_pertama == "2024-10-01"  # baris dengan waktu paling awal, bukan urutan berkas
+
+
+def test_holdout_log_alternatif_tidak_menimpa_alternatif_lama(tmp_path, monkeypatch, atur_waktu):
+    utama, _ = gb.tambah_holdout_log(tmp_path, _baris_log("A"))
+    _kunci_tulis(monkeypatch)
+    atur_waktu("2026-10-16T21:00:00+07:00")
+    alt1, _ = gb.tambah_holdout_log(tmp_path, _baris_log("B"))
+    atur_waktu("2026-10-17T21:00:00+07:00")  # jam yang sama pada hari berikutnya
+    alt2, _ = gb.tambah_holdout_log(tmp_path, _baris_log("A"))
+    assert (alt1.name, alt2.name) == ("holdout_log_210000.csv", "holdout_log_210000_2.csv")
+    r = gb.baca_holdout_log(utama)
+    assert (r.n_dilihat, r.m_konfigurasi, r.n_baris) == (3, 2, 3) and not r.murni

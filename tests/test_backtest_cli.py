@@ -581,3 +581,4 @@ def test_data_berakhir_sebelum_holdout_tanpa_baris_log(tmp_path):
     assert "| Holdout | belum tercapai oleh data |" in md
     assert "| Holdout | 2025-09-01" not in md
     assert "| 2025 (parsial) | 2025-01-01 … 2025-06-30 |" in md
+    assert "(memuat holdout)" not in md
