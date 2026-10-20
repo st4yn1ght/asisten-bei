@@ -21,6 +21,7 @@ from asisten_bei.inputs import (
     AnomaliOk,
     BarisExclude,
     BarisPortofolio,
+    PERINGATAN,
     InputTidakValid,
     Masalah,
     Masukan,
@@ -1017,3 +1018,37 @@ class TestCekUmurAkun:
         assert waktu.hari_ini() == self.HARI_INI  # conftest: 2026-10-15T20:00 WIB
         akun = Akun(Decimal("1"), date(2026, 10, 7), True)
         assert cek_umur_akun(akun, Kalender({}), waktu.hari_ini(), 5) is not None
+
+
+# --- Titik ribuan satu kelompok (§6): sah sebagai desimal, tetapi diberi PERINGATAN ----------------------
+
+
+def test_portofolio_harga_dengan_satu_titik_ribuan_diberi_peringatan(tmp_path):
+    p = tmp_path / "portfolio.csv"
+    p.write_text(
+        "kode,tanggal_beli,harga_beli,lot,strategi,stop_awal,sektor,harga_per_tanggal,lembar,catatan\n"
+        "ZXQA,2026-10-08,2.850,2,PB,2.720,Fiktif,,,\n"
+        "ZXQB,2026-10-08,2850,2,PB,2720,Fiktif,,,\n"
+        "ZXQC,2026-10-08,120.667,3,MANUAL,110,Fiktif,,,rata-rata sah dengan 3 desimal\n",
+        encoding="utf-8",
+    )
+    posisi, masalah = baca_portofolio(p, set())
+    assert [b.harga_beli for b in posisi] == [Decimal("2.850"), Decimal("2850"), Decimal("120.667")]
+    assert all(m.level == PERINGATAN for m in masalah)
+    pesan = [(m.baris, m.pesan) for m in masalah]
+    assert (2, "harga_beli 2.850 dibaca sebagai 2,850; bila maksud Anda 2.850 rupiah (pemisah ribuan), "
+               "tulis 2850 tanpa titik") in pesan
+    assert any(b == 2 and t.startswith("stop_awal 2.720 dibaca") for b, t in pesan)
+    assert any(b == 4 and t.startswith("harga_beli 120.667 dibaca") for b, t in pesan)  # tetap diterima
+    assert not any(b == 3 for b, _ in pesan)
+
+
+def test_akun_kas_dengan_satu_titik_ribuan_diberi_peringatan(tmp_path):
+    p = tmp_path / "akun.yaml"
+    p.write_text("kas_idr: 950.000   # salah ketik gaya Indonesia\ndiperbarui: 2026-10-15\n", encoding="utf-8")
+    akun, masalah = baca_akun(p, Decimal(3_000_000))
+    assert akun.kas_idr == Decimal("950.0")
+    assert [(m.level, m.baris) for m in masalah] == [(PERINGATAN, 1)]
+    assert "tulis 950000 tanpa titik" in masalah[0].pesan
+    p.write_text("kas_idr: 950000\ndiperbarui: 2026-10-15\n", encoding="utf-8")
+    assert baca_akun(p, Decimal(3_000_000))[1] == []

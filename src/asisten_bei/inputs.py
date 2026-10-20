@@ -267,6 +267,17 @@ _POLA_TANGGAL_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _POLA_DESIMAL = re.compile(r"^-?\d+(\.\d+)?$")
 _POLA_INT = re.compile(r"^-?\d+$")
 _POLA_RIBUAN_TITIK = re.compile(r"^-?\d{1,3}(\.\d{3}){2,}$")  # 1.000.000
+_POLA_RIBUAN_SATU = re.compile(r"^-?\d{1,3}\.\d{3}$")  # 2.850: sah sebagai desimal, tetapi mungkin ribuan
+
+
+def saran_titik_ribuan(kolom: str, mentah: str) -> str | None:
+    """PERINGATAN §6 untuk angka seperti `2.850` (dibaca 2,85), atau None."""
+    mentah = str(mentah).strip()
+    if not _POLA_RIBUAN_SATU.match(mentah):
+        return None
+    tanpa_titik = mentah.replace(".", "")
+    return (f"{kolom} {mentah} dibaca sebagai {mentah.replace('.', ',')}; bila maksud Anda {mentah} rupiah "
+            f"(pemisah ribuan), tulis {tanpa_titik} tanpa titik")
 _POLA_KODE = re.compile(r"^[A-Z0-9]{1,12}$")
 
 
@@ -696,6 +707,10 @@ def baca_portofolio(
             continue
         if not b.ok:
             continue
+        for kolom in ("harga_beli", "stop_awal"):
+            saran = saran_titik_ribuan(kolom, data[kolom])
+            if saran:
+                b.peringatan(saran)
         if stop_awal >= harga_beli:
             b.peringatan(
                 f"stop_awal {stop_awal} ≥ harga_beli {harga_beli}: posisi sudah berada di bawah stop "
@@ -823,6 +838,10 @@ def baca_akun(
     kas: Decimal | None = None
     diperbarui: date | None = None
     if "kas_idr" in data:
+        mentah = re.search(r"^kas_idr\s*:\s*([^#\s]+)", teks, flags=re.MULTILINE)
+        saran = saran_titik_ribuan("kas_idr", mentah.group(1)) if mentah else None
+        if saran:
+            masalah.append(_peringatan(nama, baris_kunci.get("kas_idr"), saran))
         try:
             kas = _kas_dari_yaml(data["kas_idr"])
             if kas < 0:

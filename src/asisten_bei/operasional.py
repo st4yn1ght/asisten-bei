@@ -365,6 +365,9 @@ def cek_env(akar: Path, telegram_aktif: bool) -> list[tuple[str, str]]:
     kosong = [k for k in (ENV_TOKEN, ENV_CHAT_ID) if not env.get(k)]
     if kosong:
         hasil.append(("PERINGATAN", f"Telegram belum disiapkan: {', '.join(kosong)} di .env masih kosong"))
+    elif "CONTOH" in str(env.get(ENV_TOKEN, "")).upper():
+        hasil.append(("PERINGATAN", f"Telegram belum disiapkan: {ENV_TOKEN} di .env masih nilai contoh; "
+                                    "ganti dengan token dari @BotFather"))
     return hasil
 
 

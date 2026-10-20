@@ -19,7 +19,7 @@ asisten-bei\                      ← folder utama proyek
 │   ├── portfolio.csv             ← sudah ada, baru berisi baris judul
 │   ├── akun.yaml                 ← Anda buat sendiri (contoh: contoh\input\akun.yaml)
 │   ├── universe_history.csv      ← opsional; buat hanya bila Anda punya datanya
-│   └── anomali_ok.csv            ← opsional; buat hanya bila diperlukan
+│   └── anomali_ok.csv            ← opsional; lihat bagian terakhir
 └── contoh\                       ← berkas contoh terisi (tidak pernah dibaca program)
     ├── PANDUAN_ISI.md            ← berkas ini
     ├── input\…                   ← contoh terisi untuk setiap berkas di input\
@@ -32,25 +32,30 @@ Program **hanya** membaca `input\`, `config.yaml`, dan `.env`. Isi di `contoh\` 
 
 ## Aturan umum untuk semua berkas CSV
 
-- Edit dengan **Notepad**, bukan Excel. Excel dengan format regional Indonesia mengganti koma menjadi `;`
-  dan titik desimal menjadi koma, sehingga berkas ditolak.
+- Edit dengan **Notepad**, bukan Excel (klik kanan berkas → *Buka dengan* → *Notepad*). Excel dengan format
+  regional Indonesia mengganti koma menjadi `;` dan titik desimal menjadi koma, sehingga berkas ditolak.
 - Baris pertama adalah **baris judul (header)**. Jangan diubah atau dihapus; tambahkan data mulai baris kedua.
 - Pemisah kolom koma. Kolom kosong tetap ditulis dengan koma: `AAAA,2026-10-08,2850,2,PB,2720,,,,`
-- Angka memakai titik desimal tanpa pemisah ribuan: `2850`, `0.5` (bukan `2.850` atau `0,5`).
+- Angka memakai titik desimal **tanpa pemisah ribuan**: `2850`, `0.5`.
+  - `1.000.000` ditolak `cek` sebagai ERROR.
+  - **Awas:** `2.850` **tidak** ditolak, karena juga sah sebagai angka desimal. Program membacanya sebagai
+    2,85 rupiah dan `cek` hanya memberi PERINGATAN. Selalu tulis `2850`.
 - Tanggal **hanya** `YYYY-MM-DD`, mis. `2026-10-08`. Format lain ditolak.
 - Kode saham huruf besar **tanpa** `.JK`: `AAAA`, bukan `aaaa.JK`.
 - Teks yang memuat koma diapit tanda kutip ganda: `DDDD,"Contoh Empat, Tbk",Barang Konsumen Primer`.
 - Simpan dengan encoding **UTF-8** (Notepad: *Simpan sebagai* → *Encoding: UTF-8*).
-- Di Windows, aktifkan *File name extensions* di File Explorer agar `universe.csv` tidak tersimpan sebagai
-  `universe.csv.txt`.
+- Saat membuat berkas **baru** (`akun.yaml`, `.env`, `universe_history.csv`, `anomali_ok.csv`), pilih
+  *Simpan sebagai jenis: Semua berkas (\*.\*)* lalu ketik nama lengkapnya. Aktifkan juga *File name
+  extensions* di File Explorer agar terlihat bila nama berkas berakhiran `.txt`.
 
-Setelah mengisi, jalankan `cek` di folder proyek:
+Setelah mengisi, jalankan `cek` di folder proyek (Command Prompt yang dibuka di folder itu):
 
 ```
 .venv\Scripts\python -m asisten_bei cek
 ```
 
-`cek` menyebut berkas dan nomor baris yang salah. Lanjutkan hanya bila hasilnya **0 ERROR**.
+`cek` menyebut berkas dan nomor baris yang salah. Perbaiki semua **ERROR**, lalu baca juga setiap
+**PERINGATAN** (misalnya angka bertitik ribuan di atas).
 
 ---
 
@@ -119,7 +124,7 @@ BBBB,2020-02-03,
 | Kolom | Isi |
 |---|---|
 | `kode` | Kode saham. |
-| `alasan` | Wajib, mis. `Suspensi`, `Notasi khusus`, `Papan pemantauan khusus`. |
+| `alasan` | Isi alasannya, mis. `Suspensi`, `Notasi khusus`, `Papan pemantauan khusus`. |
 | `tanggal_mulai` | Mulai berlaku (ikut dihitung). Kosong = sejak dulu. |
 | `tanggal_akhir` | Berakhir (ikut dihitung). Kosong = sampai dicabut. |
 
@@ -170,47 +175,58 @@ persentase ARA/ARB di contoh itu **fiktif** dan sengaja dibuat aneh.
 Langkah:
 
 1. Buka `config.yaml` dengan Notepad, cari `jadwal_sesi:`, `fraksi_harga:`, dan `auto_reject:`.
-2. Ganti `null` dan `[]` dengan nilai dari sumber resmi, mengikuti bentuk di contoh. Perhatikan indentasi
-   (spasi, bukan tab) dan tanda kutip pada jam dan tanggal.
-3. Tabel rentang harga: `harga_min` ikut rentang itu, `harga_maks` tidak (sama dengan `harga_min` baris
+2. **Ubah nilainya langsung di bagian yang sudah ada.** Jangan menempel (paste) blok dari berkas contoh:
+   `config.yaml` sudah punya bagian yang sama, dan `cek` menolak bagian yang muncul dua kali.
+3. Ganti `null` dan `[]` dengan nilai dari sumber resmi, mengikuti bentuk di contoh. Perhatikan indentasi
+   (spasi, bukan tab) dan tanda kutip pada jam dan tanggal. Tulis angka **tanpa titik ribuan** (`5000`, bukan
+   `5.000`): di `config.yaml`, `5.000` dibaca sebagai 5 tanpa pesan error.
+4. Tabel rentang harga: `harga_min` ikut rentang itu, `harga_maks` tidak (sama dengan `harga_min` baris
    berikutnya). Baris harus bersambung tanpa celah, dan baris terakhir `harga_maks: null`.
-4. Ubah `terverifikasi: true` **hanya** setelah semua nilai di blok itu diganti dan dicocokkan.
-5. Jalankan `cek`.
+5. Ubah `terverifikasi: true` **hanya** setelah semua nilai di blok itu diganti dan dicocokkan. `cek` menolak
+   blok bertanda `terverifikasi: true` yang `sumber`-nya masih berisi teks contoh `CONTOH FIKTIF`.
+6. Jalankan `cek`.
 
-Item ini **boleh dibiarkan kosong** sementara. Program tetap berjalan dengan perilaku aman (harga hanya
-dibulatkan ke rupiah bulat, ARA/ARB tidak dimodelkan), dan setiap laporan mengingatkan Anda.
+Item ini **boleh dibiarkan kosong** (`terverifikasi: false`). Program tetap berjalan dengan perilaku aman
+(harga hanya dibulatkan ke rupiah bulat, ARA/ARB tidak dimodelkan), dan setiap laporan mengingatkan Anda.
+Putuskan sebelum backtest pertama (lihat *Urutan yang disarankan*).
 
 ## Item 9 — Biaya broker di `config.yaml` (bagian `biaya:`)
 
 | Kunci | Isi |
 |---|---|
-| `fee_beli_pct` | Persen biaya beli. Contoh hitung fiktif: biaya Rp 1.700 untuk nilai beli Rp 1.000.000 → `0.17`. |
+| `fee_beli_pct` | Persen biaya beli. Contoh hitung fiktif: biaya Rp 1234 untuk nilai beli Rp 1000000 → `0.1234`. |
 | `fee_jual_pct` | Persen biaya jual, **termasuk pajak penjualan**. |
 | `fee_minimum_idr` | Biaya minimum per transaksi, `0` bila tidak ada. |
 | `pembulatan_fee` | `null` (tidak dibulatkan), `"rupiah_terdekat"`, atau `"rupiah_ke_atas"`. |
 | `terverifikasi` | Ubah ke `true` setelah angka di atas cocok dengan trade confirmation. |
 
 **Sumber:** trade confirmation (bukti transaksi) dari broker Anda. Cocokkan satu transaksi beli dan satu
-transaksi jual.
+transaksi jual. Nilai saat ini di `config.yaml` (0.15 dan 0.25) adalah keputusan awal Anda; ubah hanya bila
+bukti transaksi menunjukkan angka lain.
 
 ## Item 10 — Satuan volume di `config.yaml` (bagian `data:`)
 
-Dikerjakan **sesudah** data diunduh (`python -m asisten_bei unduh`):
+Dikerjakan **sesudah** data diunduh (`.venv\Scripts\python -m asisten_bei unduh`) dan **selagi**
+`pengali_volume` masih `1`:
 
-1. Pilih 3 saham yang tidak mengalami split sejak tanggal uji, dengan tanggal yang sudah lewat ≥ 2 hari bursa:
-   satu di awal periode backtest, satu di tengah, satu baru.
+1. Pilih 3 pasangan saham + tanggal yang sudah lewat ≥ 2 hari bursa: satu tanggal di awal periode backtest,
+   satu di tengah, satu yang baru. Pakai hanya saham yang tidak mengalami split sesudah tanggal itu
+   (`cek --silang` menyebutkannya).
 2. Jalankan untuk masing-masing: `.venv\Scripts\python -m asisten_bei cek --silang KODE YYYY-MM-DD`
-3. Bandingkan harga dan volume dengan ringkasan perdagangan resmi (idx.co.id atau aplikasi broker).
-   Harga harus sama. Rasio volume resmi ÷ volume program menentukan `pengali_volume` (harus `1` bila data
-   sudah dalam lembar).
-4. Bila rasionya sama di ketiga saham, setel `pengali_volume_terverifikasi: true`. Bila berbeda, **jangan**
-   memakai satu pengali; anggap itu masalah data.
+3. Bandingkan harga dan volume dengan ringkasan perdagangan resmi di idx.co.id. Harga harus sama.
+   - Bandingkan volume dalam **lembar**. Banyak aplikasi broker menampilkan **lot**; kalikan dulu dengan 100.
+   - Pakai angka volume pada baris **`Bar cache`** dari `cek --silang` (baris `Nominal` sudah dikali
+     `pengali_volume`).
+   - Rasio volume resmi ÷ volume program menentukan `pengali_volume` (harus `1` bila data sudah dalam lembar).
+4. Bila rasionya sama di ketiga pasangan, setel `pengali_volume` ke rasio itu dan
+   `pengali_volume_terverifikasi: true`. Bila berbeda, **jangan** memakai satu pengali: biarkan
+   `terverifikasi: false` dan anggap itu masalah data.
 
 ## Item 11 — Fitur order di broker Anda
 
 Tidak ada berkas yang diisi. Jawab pertanyaan di [`contoh/cek_fitur_broker.md`](cek_fitur_broker.md).
 Bila broker tidak bisa memasang order otomatis stop pada saham yang baru dibeli hari itu, setel
-`entry.stop_aktif_hari_entry: false` di `config.yaml`, lalu jalankan ulang backtest.
+`entry.stop_aktif_hari_entry: false` di `config.yaml` sebelum backtest pertama.
 
 ## Item 12 — `input\akun.yaml` dan `input\portfolio.csv`
 
@@ -223,8 +239,13 @@ kas_idr: 2268905
 diperbarui: 2026-10-15
 ```
 
-- `kas_idr`: saldo kas Rupiah persis seperti di aplikasi broker, tanpa titik ribuan.
-- `diperbarui`: tanggal Anda menyalin saldo itu.
+- `kas_idr`: uang tunai Anda **setelah** semua pembelian dan penjualan yang sudah terisi dikurangkan/ditambahkan,
+  termasuk yang belum settle. **Bukan** limit beli/trading limit, dan tanpa dana pembiayaan/margin. Bila menyalin
+  angka dari aplikasi broker, pastikan transaksi yang sudah tercermin di angka itu tidak Anda hitung lagi.
+- Tulis **tanpa titik ribuan**: Rp 950.000 ditulis `950000`. (`950.000` dibaca 950 rupiah; `cek` memberi
+  PERINGATAN.)
+- `diperbarui`: tanggal saldo itu, format `YYYY-MM-DD`. Contoh di folder `contoh\` sengaja bertanggal 2099
+  agar `cek` memperingatkan bila tersalin tanpa diganti.
 - Perbarui setiap ada transaksi atau setoran. Laporan memberi peringatan bila `diperbarui` lebih tua dari
   `akun.maks_umur_hari_bursa` (5) hari bursa. Tanpa berkas ini, program memakai `akun.modal_awal_idr`
   (Rp 3.000.000) dengan peringatan mencolok.
@@ -234,11 +255,11 @@ diperbarui: 2026-10-15
 | Kolom | Wajib | Isi |
 |---|---|---|
 | `kode` | ya | Kode saham. Boleh di luar `universe.csv`. Satu kode = satu baris. |
-| `tanggal_beli` | ya | Tanggal beli (hari bursa). |
-| `harga_beli` | ya | Harga rata-rata per lembar sesuai trade confirmation, tanpa fee. |
-| `lot` | ya | Jumlah lot (1 lot = 100 lembar). |
+| `tanggal_beli` | ya | Tanggal beli (hari bursa). Tidak boleh sesudah tanggal data `t` yang dicetak `cek`: pembelian hari ini baru sah setelah `jadwal.jam_run` (19:30). Bila Anda mengisinya pagi/siang, `cek` memberi ERROR "setelah tanggal data t" — **jangan** mengubah tanggalnya; jalankan `cek` lagi setelah 19:30. |
+| `harga_beli` | ya | Harga rata-rata per lembar sesuai trade confirmation, tanpa fee, tanpa titik ribuan. |
+| `lot` | ya | Jumlah lot (1 lot = 100 lembar), bilangan bulat ≥ 1. Bila kolom `lembar` diisi, yang dipakai `lembar`, tetapi `lot` tetap wajib ≥ 1 (isi mis. `1`). |
 | `strategi` | ya | `PB`, `BO`, `MR`, atau `MANUAL` (posisi yang bukan dari rekomendasi program). |
-| `stop_awal` | ya | Stop dari laporan, setelah Anda bulatkan ke fraksi harga. |
+| `stop_awal` | ya | Stop dari laporan, setelah Anda bulatkan ke fraksi harga. Untuk `MANUAL`, isi level stop yang Anda tetapkan sendiri. |
 | `sektor` | bila kode tidak ada di `universe.csv` | Nama sektor. |
 | `harga_per_tanggal` | tidak | Tanggal acuan harga dan lot (untuk aksi korporasi). Kosong = `tanggal_beli`. |
 | `lembar` | tidak | Isi hanya bila jumlah saham bukan kelipatan lot. |
@@ -257,11 +278,12 @@ KKKK,2026-09-14,400,4,MANUAL,370,Properti,,,contoh: saham di luar universe.csv w
 - Setelah jual habis, hapus barisnya dan tambahkan hasil jual ke `kas_idr` di `akun.yaml`.
 - Semua baris, termasuk `MANUAL`, ikut dihitung ke slot posisi dan batas sektor.
 
-**Contoh pembaruan dengan angka fiktif** (fee beli 0,15 %, jual 0,25 %):
+**Contoh pembaruan dengan angka fiktif** (misalkan portofolio Anda masih kosong; fee beli 0,15 %, jual 0,25 %):
 
-- Beli 1 lot `AAAA` di 2.010, strategi PB, stop 1.888 → tambah baris
-  `AAAA,2026-10-16,2010,1,PB,1888,,,,` dan kurangi kas sebesar 2.010 × 100 × 1,0015 = **201.301,50**.
-- Jual 1 lot itu di 2.254 → hapus barisnya dan tambah kas sebesar 225.400 × (1 − 0,0025) = **224.836,50**.
+- Beli 1 lot `BBBB` di harga 2010, strategi PB, stop 1888 → tambah baris `BBBB,2026-10-16,2010,1,PB,1888,,,,`
+  dan kurangi `kas_idr` sebesar `201301.5` (= 2010 × 100 × 1,0015), lalu ubah `diperbarui` ke tanggal itu.
+- Jual 1 lot itu di harga 2254 → hapus barisnya dan tambah `kas_idr` sebesar `224836.5`
+  (= 225400 × (1 − 0,0025)), lalu ubah `diperbarui`.
 - Bila broker membulatkan fee berbeda, pakai angka dari trade confirmation.
 
 ## Item 13 — `.env`: token dan chat ID Telegram
@@ -276,9 +298,10 @@ TELEGRAM_CHAT_ID=987654321
 
 1. Buat bot lewat @BotFather di Telegram (`/newbot`) dan salin tokennya.
 2. Kirim satu pesan apa pun ke bot Anda.
-3. Dapatkan chat ID dengan `python -m asisten_bei uji-telegram --cari-chat-id` (tersedia mulai tahap 7,
-   bersama notifikasi Telegram; sebelum itu item ini boleh ditunda).
-4. Jangan bagikan berkas `.env` ke siapa pun. `cek` memberi peringatan bila yang ada justru `.env.txt`.
+3. Dapatkan chat ID dengan `.venv\Scripts\python -m asisten_bei uji-telegram --cari-chat-id` (tersedia mulai
+   tahap 7, bersama notifikasi Telegram; sebelum itu item ini boleh ditunda).
+4. Jangan bagikan berkas `.env` ke siapa pun. `cek` memberi peringatan bila yang ada justru `.env.txt`, atau
+   bila token masih nilai contoh.
 
 ## Item 14 — `holdout_mulai` di `config.yaml` (bagian `backtest:`)
 
@@ -293,15 +316,25 @@ backtest:
 - Pilih tanggal yang menyisakan cukup data sesudahnya agar holdout bisa memuat ≥ 30 transaksi
   (`gerbang.min_transaksi_holdout`). Nilai default di `config.yaml` adalah `"2024-10-01"`.
 
+## `input\anomali_ok.csv` (opsional, bukan item §24)
+
+Buat hanya bila berkas kualitas data atau laporan menandai **ANOMALI** (lonjakan harga mencurigakan) pada
+saham + tanggal tertentu, dan Anda sudah mencocokkannya dengan ringkasan perdagangan resmi di idx.co.id lalu
+ternyata datanya benar. Kolom `kode,tanggal,catatan`; untuk indeks pakai kode `IHSG`.
+Contoh: [`contoh/input/anomali_ok.csv`](input/anomali_ok.csv). Tanpa anomali, jangan buat berkas ini.
+
 ---
 
 ## Urutan yang disarankan
 
-1. Item 1, 2, dan 12, lalu item 4 dan 5.
-2. Jalankan `cek` sampai **0 ERROR**.
-3. Unduh data: `.venv\Scripts\python -m asisten_bei unduh`, lalu kerjakan item 10.
-4. Item 6–9 dan 11 sebelum memakai rekomendasi untuk uang sungguhan; item 14 sebelum backtest pertama.
-5. Item 3 bila Anda punya data riwayat konstituen; item 13 saat notifikasi Telegram sudah tersedia.
+1. Item 1, 2, dan 12, lalu item 4 dan 5. Jalankan `cek` sampai **0 ERROR**.
+2. Unduh data: `.venv\Scripts\python -m asisten_bei unduh`, lalu kerjakan item 10.
+3. **Sebelum backtest pertama**, putuskan item 6–9 dan 11 (diisi, atau sengaja dibiarkan kosong) dan
+   tetapkan item 14. Fee, tabel fraksi/ARA, `pengali_volume`, `entry.stop_aktif_hari_entry`, dan
+   `risiko.dana_jual_langsung_dipakai` ikut menentukan "konfigurasi aturan": mengubahnya sesudah holdout
+   pernah dilihat dicatat sebagai konfigurasi baru di `holdout_log.csv`, sehingga holdout tidak lagi murni.
+   Hanya `jadwal_sesi` (item 6) yang boleh diisi belakangan tanpa akibat itu.
+4. Item 3 bila Anda punya data riwayat konstituen; item 13 saat notifikasi Telegram sudah tersedia.
 
 > **BUKAN SARAN INVESTASI.** Laporan program ini dibuat otomatis berdasarkan aturan mekanis dan data publik yang
 > bisa salah, terlambat, atau tidak lengkap. Seluruh keputusan dan risiko transaksi menjadi tanggung jawab

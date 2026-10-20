@@ -18,7 +18,7 @@ from dotenv import dotenv_values
 
 from asisten_bei import inputs
 from asisten_bei.cek import jalankan_cek
-from asisten_bei.config import baca_yaml, muat_config, validasi_dict
+from asisten_bei.config import ConfigTidakValid, baca_yaml, muat_config, validasi_dict
 
 AKAR = Path(__file__).resolve().parents[1]
 CONTOH = AKAR / "contoh"
@@ -91,17 +91,31 @@ def test_input_tidak_memuat_berkas_yang_berbahaya_bila_kosong_atau_contoh():
         assert not (AKAR / "input" / nama).exists(), nama
 
 
-def test_contoh_config_sah_bila_disalin_apa_adanya_maupun_terverifikasi():
+def test_contoh_config_sah_bila_disalin_apa_adanya():
     contoh = baca_yaml(CONTOH / "config_bei_contoh.yaml")
     cfg = validasi_dict(_gabung(baca_yaml(AKAR / "config.yaml"), contoh))
     assert not cfg.pasar.fraksi_harga.terverifikasi and not cfg.pasar.auto_reject.terverifikasi
-    data = _gabung(baca_yaml(AKAR / "config.yaml"), contoh)
-    for blok in (data["pasar"]["jadwal_sesi"], data["pasar"]["fraksi_harga"], data["pasar"]["auto_reject"],
-                 data["biaya"]):
-        blok["terverifikasi"] = True
-    data["data"]["pengali_volume_terverifikasi"] = True
+
+
+@pytest.mark.parametrize("blok", ["jadwal_sesi", "fraksi_harga", "auto_reject"])
+def test_contoh_aturan_bei_ditolak_bila_ditandai_terverifikasi_tanpa_mengganti_sumber(blok):
+    data = _gabung(baca_yaml(AKAR / "config.yaml"), baca_yaml(CONTOH / "config_bei_contoh.yaml"))
+    data["pasar"][blok]["terverifikasi"] = True
+    with pytest.raises(ConfigTidakValid, match="CONTOH FIKTIF"):
+        validasi_dict(data)
+    # Bentuk isiannya sendiri sah: dengan sumber diganti, blok terverifikasi diterima.
+    data["pasar"][blok]["sumber"] = "Sumber resmi FIKTIF – KHUSUS UJI"
     cfg = validasi_dict(data)
-    assert cfg.pasar.fraksi_harga.tabel and cfg.pasar.auto_reject.ara and cfg.pasar.auto_reject.arb
+    assert getattr(cfg.pasar, blok).terverifikasi
+
+
+def test_config_dengan_blok_tertempel_dua_kali_ditolak(tmp_path):
+    teks = (AKAR / "config.yaml").read_text(encoding="utf-8")
+    contoh = (CONTOH / "config_bei_contoh.yaml").read_text(encoding="utf-8")
+    biaya = contoh[contoh.index("\nbiaya:"):contoh.index("\n# --- Item 10")]
+    (tmp_path / "config.yaml").write_text(teks + biaya, encoding="utf-8")
+    with pytest.raises(ConfigTidakValid, match="kunci ganda 'biaya'"):
+        muat_config(tmp_path / "config.yaml", tmp_path)
 
 
 def test_contoh_aturan_bei_ditandai_fiktif_dan_tidak_pernah_berlaku():
@@ -129,8 +143,9 @@ def test_cek_dengan_contoh_input_tanpa_error(tmp_path):
     baris: list[str] = []
     hasil = jalankan_cek(muat_config(tmp_path / "config.yaml", tmp_path), silang_kode=None, keluar=baris.append)
     assert hasil.kode_keluar == 0 and hasil.error == [], "\n".join(baris)
-    # Libur contoh bertahun 2099 → peringatan kalender tahun berjalan tetap muncul.
+    # Contoh yang tersalin tanpa diganti tetap memicu peringatan: libur bertahun 2099 dan akun bertanggal 2099.
     assert any("holidays.csv belum berisi tanggal libur tahun" in b for b in baris)
+    assert any("akun.yaml" in b and "berada di masa depan" in b for b in baris), "\n".join(baris)
 
 
 def test_panduan_menyebut_semua_item_dan_tautannya_ada():
@@ -149,3 +164,12 @@ def test_berkas_yaml_contoh_diawali_disclaimer():
         teks = path.read_text(encoding="utf-8")
         assert "BUKAN SARAN INVESTASI" in teks.splitlines()[0]
         yaml.safe_load(teks)
+
+
+def test_env_contoh_yang_tersalin_apa_adanya_diberi_peringatan(tmp_path, monkeypatch):
+    from asisten_bei import operasional
+
+    monkeypatch.setattr(operasional, "PENYARING", operasional.PenyaringRahasia())  # token contoh tidak bocor ke uji lain
+    shutil.copy2(CONTOH / "env.contoh", tmp_path / ".env")
+    hasil = operasional.cek_env(tmp_path, telegram_aktif=True)
+    assert len(hasil) == 1 and hasil[0][0] == "PERINGATAN" and "masih nilai contoh" in hasil[0][1]

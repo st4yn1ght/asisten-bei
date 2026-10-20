@@ -123,6 +123,18 @@ class Jadwal(_M):
         return _cek_jam(v)
 
 
+TEKS_CONTOH_FIKTIF = "CONTOH FIKTIF"  # penanda sumber di contoh/config_bei_contoh.yaml
+
+
+def _cek_bukan_contoh(blok) -> None:
+    """Blok aturan BEI yang ditandai terverifikasi tidak boleh masih bersumber teks contoh (§7)."""
+    if blok.terverifikasi and TEKS_CONTOH_FIKTIF in blok.sumber.upper():
+        raise ValueError(
+            "terverifikasi: true tetapi sumber masih teks contoh (CONTOH FIKTIF); ganti semua nilai blok ini "
+            "dari idx.co.id dan tulis sumbernya"
+        )
+
+
 class JadwalSesi(_M):
     terverifikasi: StrictBool
     sumber: StrictStr
@@ -134,6 +146,11 @@ class JadwalSesi(_M):
     @classmethod
     def _v_jam(cls, v):
         return _cek_jam(v)
+
+    @model_validator(mode="after")
+    def _cek(self):
+        _cek_bukan_contoh(self)
+        return self
 
 
 class BarisFraksi(_M):
@@ -178,6 +195,7 @@ class FraksiHarga(_M):
 
     @model_validator(mode="after")
     def _cek(self):
+        _cek_bukan_contoh(self)
         _cek_tabel_rentang(self.tabel, "tabel")
         if self.terverifikasi:
             if not self.tabel:
@@ -202,6 +220,7 @@ class AutoReject(_M):
 
     @model_validator(mode="after")
     def _cek(self):
+        _cek_bukan_contoh(self)
         _cek_tabel_rentang(self.ara, "ara")
         _cek_tabel_rentang(self.arb, "arb")
         if self.terverifikasi:
@@ -672,10 +691,32 @@ class KonteksApp:
         return resolusi_konteks(self.cfg, nama)
 
 
+class _PemuatTanpaGanda(yaml.SafeLoader):
+    """SafeLoader yang menolak kunci ganda (PyYAML biasa diam-diam memakai yang terakhir, §7)."""
+
+
+def _pemetaan_tanpa_ganda(loader: yaml.SafeLoader, node: yaml.MappingNode, deep: bool = False) -> Any:
+    terlihat: set[Any] = set()
+    for kunci_node, _ in node.value:
+        kunci = loader.construct_object(kunci_node, deep=deep)
+        if kunci in terlihat:
+            raise yaml.constructor.ConstructorError(
+                None, None,
+                f"kunci ganda '{kunci}' (bagian dengan nama yang sama hanya boleh ada satu; ubah nilainya di "
+                "bagian yang sudah ada, jangan menempel blok baru)",
+                kunci_node.start_mark,
+            )
+        terlihat.add(kunci)
+    return loader.construct_mapping(node, deep=deep)
+
+
+_PemuatTanpaGanda.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _pemetaan_tanpa_ganda)
+
+
 def baca_yaml(path: Path) -> Any:
     try:
         with open(path, encoding="utf-8-sig") as f:
-            return yaml.safe_load(f)
+            return yaml.load(f, Loader=_PemuatTanpaGanda)
     except FileNotFoundError:
         raise ConfigTidakValid([f"berkas config tidak ditemukan: {path}"]) from None
     except UnicodeDecodeError as e:

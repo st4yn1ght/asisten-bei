@@ -3,16 +3,21 @@
 # BERKAS INI TIDAK DIBACA PROGRAM. Isinya hanya menunjukkan bentuk isian yang benar.
 # Cara pakai:
 #   1. Buka config.yaml dengan Notepad dan cari bagian dengan nama yang sama (mis. "pasar:" → "jadwal_sesi:").
-#   2. Ganti nilai di config.yaml satu per satu, mengikuti bentuk di bawah, memakai angka dari SUMBER RESMI.
-#   3. Jangan menyalin angka dari berkas ini: semua jam, tabel fraksi, dan persentase ARA/ARB di bawah
-#      FIKTIF dan sengaja dibuat aneh (mis. jam 03:17, fraksi 3 dan 9, ARA 77 %), agar tidak tertukar dengan
-#      aturan sungguhan. Aturan BEI banyak berubah pada 2026; isi hanya dari idx.co.id, bukan dari ingatan.
+#   2. UBAH NILAINYA LANGSUNG di bagian config.yaml yang sudah ada. JANGAN menempel (paste) blok dari berkas ini:
+#      config.yaml sudah punya bagian yang sama, dan cek menolak bagian yang muncul dua kali.
+#   3. Jangan menyalin angka dari berkas ini: semua jam, tabel fraksi, persentase ARA/ARB, dan fee di bawah
+#      FIKTIF dan sengaja dibuat aneh (mis. jam 03:17, fraksi 3 dan 9, ARA 77 %, fee 0.1234 %), agar tidak
+#      tertukar dengan nilai sungguhan. Aturan BEI banyak berubah pada 2026; isi hanya dari idx.co.id.
 #   4. Ubah "terverifikasi" menjadi true HANYA setelah semua nilai di blok itu Anda ganti dan cocokkan.
+#      cek menolak blok aturan BEI bertanda true yang "sumber"-nya masih berisi teks "CONTOH FIKTIF".
 #   5. Jalankan cek (di folder proyek: .venv\Scripts\python -m asisten_bei cek). Bila ada ERROR, pesannya
 #      menyebut kunci yang salah. Panduan lengkap: contoh/PANDUAN_ISI.md.
+#   6. Putuskan semua bagian ini sebelum backtest pertama: mengubah fee, tabel fraksi/ARA, pengali_volume, atau
+#      stop_aktif_hari_entry sesudah holdout dilihat dicatat sebagai konfigurasi aturan baru (SPEC §16.4).
 #
-# Aturan penulisan YAML: indentasi memakai spasi (bukan tab), teks/jam/tanggal diapit tanda kutip ganda,
-# angka desimal memakai titik (0.15, bukan 0,15), dan "null" berarti kosong.
+# Aturan penulisan YAML: indentasi memakai spasi (bukan tab); teks, jam, dan tanggal diapit tanda kutip ganda;
+# angka desimal memakai titik (0.15, bukan 0,15); angka TANPA pemisah ribuan (5000, bukan 5.000 — YAML membaca
+# 5.000 sebagai 5 tanpa pesan error); "null" berarti kosong.
 
 pasar:
   # --- Item 6: jadwal sesi ---------------------------------------------------------------------------
@@ -35,8 +40,8 @@ pasar:
     berlaku_mulai: "2099-01-01"                # FIKTIF. Isi tanggal mulai berlaku menurut peraturan
     tabel:
       - {harga_min: 0, harga_maks: 123, fraksi: 1}          # FIKTIF: harga 0 s.d. di bawah 123 → kelipatan 1
-      - {harga_min: 123, harga_maks: 4567, fraksi: 3}       # FIKTIF: 123 s.d. di bawah 4.567 → kelipatan 3
-      - {harga_min: 4567, harga_maks: null, fraksi: 9}      # FIKTIF: 4.567 ke atas → kelipatan 9
+      - {harga_min: 123, harga_maks: 4567, fraksi: 3}       # FIKTIF: 123 s.d. di bawah 4567 → kelipatan 3
+      - {harga_min: 4567, harga_maks: null, fraksi: 9}      # FIKTIF: 4567 ke atas → kelipatan 9
 
   # --- Item 8: batas auto reject (ARA/ARB) ----------------------------------------------------------
   # Sumber: peraturan/pengumuman auto rejection terbaru di idx.co.id. batas_pct = persen dari harga acuan.
@@ -58,32 +63,35 @@ pasar:
 
 # --- Item 9: biaya broker -------------------------------------------------------------------------------
 # Sumber: trade confirmation (bukti transaksi) dari broker Anda. Contoh hitung FIKTIF:
-#   Beli : nilai transaksi Rp 1.000.000, total biaya beli tercatat Rp 1.700 → 1.700 ÷ 1.000.000 × 100 = 0.17
-#   Jual : nilai transaksi Rp 1.000.000, total biaya jual (termasuk pajak) Rp 2.700 → 0.27
-#   Biaya minimum: lihat apakah transaksi kecil tetap dikenai biaya tetap (mis. Rp 1.234); 0 bila tidak ada.
+#   Beli : nilai transaksi Rp 1000000, total biaya beli tercatat Rp 1234 → 1234 ÷ 1000000 × 100 = 0.1234
+#   Jual : nilai transaksi Rp 1000000, total biaya jual (termasuk pajak) Rp 5678 → 0.5678
+#   Biaya minimum: lihat apakah transaksi kecil tetap dikenai biaya tetap; 0 bila tidak ada.
 #   Pembulatan: bila biaya di bukti transaksi selalu dibulatkan ke rupiah, pilih "rupiah_terdekat" atau
 #   "rupiah_ke_atas"; null bila tidak dibulatkan.
+# Nilai di config.yaml saat ini (0.15 dan 0.25) adalah keputusan awal Anda; ubah hanya bila bukti transaksi
+# menunjukkan angka lain.
 biaya:
-  fee_beli_pct: 0.17                           # FIKTIF
-  fee_jual_pct: 0.27                           # FIKTIF
+  fee_beli_pct: 0.1234                         # FIKTIF
+  fee_jual_pct: 0.5678                         # FIKTIF
   fee_minimum_idr: 0                           # 0 = tidak ada biaya minimum
   pembulatan_fee: null                         # null / "rupiah_terdekat" / "rupiah_ke_atas"
   slippage_pct: 0.10                           # asumsi selisih harga per sisi; bukan dari broker
   terverifikasi: false                         # → true setelah fee cocok dengan trade confirmation
 
 # --- Item 10: satuan volume ------------------------------------------------------------------------------
-# Sesudah unduh, jalankan .venv\Scripts\python -m asisten_bei cek --silang KODE YYYY-MM-DD untuk 3 saham
-# (SPEC §22.3 langkah 3), lalu
-# bandingkan volume dengan ringkasan perdagangan resmi. Contoh hitung FIKTIF:
-#   volume di program 1.234.500 lembar, volume resmi 1.234.500 lembar → rasio 1 → pengali_volume: 1
-# Bila rasionya berbeda di ketiga saham, JANGAN pakai satu pengali: laporkan sebagai masalah data.
+# Sesudah unduh dan selagi pengali_volume masih 1, jalankan
+#   .venv\Scripts\python -m asisten_bei cek --silang KODE YYYY-MM-DD
+# untuk 3 saham (SPEC §22.3 langkah 3), lalu bandingkan volume baris "Bar cache" dengan ringkasan perdagangan
+# resmi dalam LEMBAR (bila sumber menampilkan lot, kalikan 100 dulu). Contoh hitung FIKTIF:
+#   volume program 1234500 lembar, volume resmi 1234500 lembar → rasio 1 → pengali_volume: 1
+# Bila rasionya berbeda di ketiga saham, JANGAN pakai satu pengali: biarkan terverifikasi false (masalah data).
 data:
   pengali_volume: 1
   pengali_volume_terverifikasi: false          # → true setelah rasio ketiga saham sama
 
 # --- Item 11: fitur order broker ---------------------------------------------------------------------------
 # Lihat contoh/cek_fitur_broker.md. Bila broker TIDAK bisa memasang order otomatis stop pada saham yang
-# baru dibeli hari itu, ubah ke false lalu jalankan ulang backtest.
+# baru dibeli hari itu, ubah ke false sebelum backtest pertama.
 entry:
   stop_aktif_hari_entry: true
 

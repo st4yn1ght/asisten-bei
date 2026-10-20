@@ -349,7 +349,7 @@ asisten-bei/
 
 - Dibaca dengan `encoding="utf-8-sig"`, sehingga BOM dari Excel diterima.
 - Pemisah koma, header di baris pertama.
-- Angka memakai titik desimal tanpa pemisah ribuan.
+- Angka memakai titik desimal tanpa pemisah ribuan. Pemisah ribuan bertitik dengan dua kelompok atau lebih (`1.000.000`) adalah ERROR. Satu kelompok (`2.850`) tidak bisa dibedakan dari angka desimal yang sah, jadi dibaca sebagai 2,85 dan diberi PERINGATAN pada `harga_beli`, `stop_awal`, dan `kas_idr` ("bila maksudnya ribuan, tulis tanpa titik").
 - Tanggal **hanya** `YYYY-MM-DD`. Format lain adalah ERROR dan tidak pernah ditebak.
 - Kode saham huruf besar tanpa `.JK`.
 - Jika terdeteksi pemisah `;`, koma desimal, atau format tanggal lain, `cek` menolak berkas dengan pesan khusus: "Berkas tampaknya disimpan Excel dengan format regional Indonesia. Simpan ulang sebagai CSV UTF-8 (koma) atau edit dengan Notepad." README menganjurkan mengedit berkas input dengan Notepad dan menyertakan contoh siap pakai.
@@ -479,7 +479,7 @@ tanggal,open,high,low,close,volume
 
 ## 7. `config.yaml`
 
-Isi lengkap dengan nilai default. Semua kunci wajib ada, dan kunci yang tidak dikenal adalah error. Validasi tambahan: `skor.bobot` berjumlah 100 dan semuanya ≥ 0; tabel fraksi dan ARA/ARB tidak boleh tumpang tindih atau berlubang (harga di bawah `harga_min` baris pertama memakai baris pertama); persen berada di rentang wajar.
+Isi lengkap dengan nilai default. Semua kunci wajib ada, dan kunci yang tidak dikenal adalah error. Kunci ganda pada tingkat mana pun (mis. blok yang ditempel dua kali) adalah error; PyYAML biasa diam-diam memakai yang terakhir. Validasi tambahan: `pasar.jadwal_sesi`, `pasar.fraksi_harga`, dan `pasar.auto_reject` dengan `terverifikasi: true` tidak boleh ber-`sumber` yang masih memuat teks contoh "CONTOH FIKTIF" (dari `contoh/config_bei_contoh.yaml`); `skor.bobot` berjumlah 100 dan semuanya ≥ 0; tabel fraksi dan ARA/ARB tidak boleh tumpang tindih atau berlubang (harga di bawah `harga_min` baris pertama memakai baris pertama); persen berada di rentang wajar.
 
 ```yaml
 versi_config: 1                        # harus 1; nilai lain = error "config dari versi program lain"
@@ -1689,7 +1689,7 @@ Jika berkas keluaran terkunci (sedang dibuka di Excel), program menulis ke `<nam
 
 | Perintah | Fungsi |
 |---|---|
-| `cek [--silang KODE TANGGAL]` | Validasi config + semua input. Mencantumkan item belum diverifikasi, `holidays.csv`, `holdout_mulai`, `.env` (termasuk deteksi `.env.txt`), dan perbandingan kalender. `--silang` mencetak bar cache, `F(d)`, dan nilai nominal untuk dicocokkan dengan sumber resmi. |
+| `cek [--silang KODE TANGGAL]` | Validasi config + semua input. Mencantumkan item belum diverifikasi, `holidays.csv`, `holdout_mulai`, `.env` (termasuk deteksi `.env.txt` dan PERINGATAN bila token masih nilai contoh `CONTOH_FIKTIF` dari `contoh/env.contoh`), dan perbandingan kalender. `--silang` mencetak bar cache, `F(d)`, dan nilai nominal untuk dicocokkan dengan sumber resmi. |
 | `unduh [--penuh] [--simbol K1,K2]` | Memperbarui cache (§8.2). |
 | `backtest [--strategi ...] [--mode ...]` | §16 |
 | `harian [--jadwal] [--offline] [--tanggal D] [--tanpa-notifikasi] [--catat] [--catat-ulang]` | §18 |
