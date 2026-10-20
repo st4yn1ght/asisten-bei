@@ -1454,7 +1454,7 @@ PENUTUPAN d
 - **Titik awal setiap periode/jendela:** `E_awal` strategi dan pembanding IHSG sama-sama diambil pada close hari bursa terakhir sebelum periode. Untuk periode pertama: modal awal dan close IHSG sebelum `backtest.mulai`. `hari_kalender` dihitung dari tanggal itu.
 - **Parameter tidak dioptimasi.**
 - **Disiplin holdout:**
-  - Bila `holdout_log.csv` terkunci (dibuka di Excel), isinya ditulis ke `holdout_log_<HHMMSS>.csv` dengan peringatan; berkas alternatif ini tetap dibaca untuk N/M (baris yang sama dihitung sekali), jadi jangan dihapus.
+  - Bila `holdout_log.csv` terkunci (dibuka di Excel), isinya ditulis ke `holdout_log_<HHMMSS>.csv` dengan peringatan; berkas alternatif ini tetap dibaca untuk N/M (baris yang sama dihitung sekali), jadi jangan dihapus. Berkas alternatif tidak pernah ditimpa (`_2`, `_3`, ...). Bila ada berkas log yang tidak terbaca, ringkasan menyebut N/M sebagai batas bawah ("sedikitnya") dengan peringatan.
   - Setiap run × mode yang menghitung holdout menambah satu baris ke `holdout_log.csv`: `waktu, holdout_mulai, hash_aturan, hash_input, strategi, mode, pf_r_holdout, n_holdout`. Kolom `strategi` berisi nama run (`run_backtest`). Semua baris dari satu perintah backtest memakai `waktu` yang sama.
   - Ringkasan menampilkan: "Holdout telah dilihat **N** kali dengan **M** konfigurasi aturan berbeda." N = banyaknya nilai `waktu` berbeda (perintah backtest), M = banyaknya `hash_aturan` berbeda. Jika M > 1, holdout tidak lagi murni dan ringkasan memberi peringatan.
   - `cek` memperingatkan jika `holdout_mulai` berbeda dari nilai pertama di log.
