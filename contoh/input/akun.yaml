@@ -1,0 +1,10 @@
+# CONTOH FORMAT (BUKAN SARAN INVESTASI). Salin ke input/akun.yaml lalu ganti kedua nilai dengan data akun Anda.
+# kas_idr   : saldo kas dalam Rupiah, angka tanpa titik ribuan (boleh 0), persis seperti di aplikasi broker.
+# diperbarui: tanggal Anda menyalin saldo itu, format YYYY-MM-DD. Perbarui setiap ada transaksi atau setoran.
+#
+# Angka contoh ini = modal 3.000.000 dikurangi dua pembelian di contoh/input/portfolio.csv (fee beli 0,15 %):
+#   AAAA 2 lot × 100 × 2.850 = 570.000 + fee 855 = 570.855
+#   KKKK 4 lot × 100 × 400   = 160.000 + fee 240 = 160.240
+#   3.000.000 − 570.855 − 160.240 = 2.268.905
+kas_idr: 2268905
+diperbarui: 2026-10-15

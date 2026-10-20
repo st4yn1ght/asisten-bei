@@ -224,14 +224,22 @@ asisten-bei/
 ├── pyproject.toml
 │
 ├── input/                       # Berkas input utama yang Anda isi (§6)
-│   ├── universe.csv
-│   ├── breadth_universe.csv
-│   ├── universe_history.csv     # opsional
-│   ├── exclude.csv
-│   ├── portfolio.csv
-│   ├── akun.yaml
-│   ├── holidays.csv
-│   └── anomali_ok.csv           # opsional
+│   ├── universe.csv             # dirilis berisi baris judul saja
+│   ├── breadth_universe.csv     # dirilis berisi baris judul saja
+│   ├── universe_history.csv     # opsional; tidak dirilis (berkas kosong = backtest tanpa konstituen)
+│   ├── exclude.csv              # dirilis berisi baris judul saja
+│   ├── portfolio.csv            # dirilis berisi baris judul saja
+│   ├── akun.yaml                # tidak dirilis (Anda buat sendiri)
+│   ├── holidays.csv             # dirilis berisi baris judul saja
+│   └── anomali_ok.csv           # opsional; tidak dirilis
+│
+├── contoh/                      # Contoh terisi untuk §24; TIDAK PERNAH dibaca program
+│   ├── PANDUAN_ISI.md           # letak, format, sumber, dan langkah setiap item §24
+│   ├── input/                   # contoh terisi setiap berkas input/ (kode & harga fiktif, libur bertahun 2099)
+│   ├── config_bei_contoh.yaml   # bentuk isian pasar.jadwal_sesi/fraksi_harga/auto_reject, biaya, data, backtest
+│   │                            #   (semua aturan BEI FIKTIF, terverifikasi false, berlaku_mulai 2099)
+│   ├── cek_fitur_broker.md      # daftar pertanyaan item 11
+│   └── env.contoh               # bentuk isian .env (nilai fiktif)
 │
 ├── data/                        # Dikelola program, kecuali data/manual/
 │   ├── cache/
@@ -346,6 +354,7 @@ asisten-bei/
 - Kode saham huruf besar tanpa `.JK`.
 - Jika terdeteksi pemisah `;`, koma desimal, atau format tanggal lain, `cek` menolak berkas dengan pesan khusus: "Berkas tampaknya disimpan Excel dengan format regional Indonesia. Simpan ulang sebagai CSV UTF-8 (koma) atau edit dengan Notepad." README menganjurkan mengedit berkas input dengan Notepad dan menyertakan contoh siap pakai.
 - Contoh di bawah memakai **kode dan harga fiktif**, hanya untuk menunjukkan format.
+- Berkas wajib dirilis di `input/` berisi baris judul saja; contoh terisi ada di `contoh/input/` (§5). Berkas CSV input tidak mendukung baris komentar, jadi penjelasan ada di `contoh/PANDUAN_ISI.md`.
 
 ### 6.1 `input/universe.csv` — saham yang boleh direkomendasikan
 
@@ -1991,6 +2000,8 @@ Jika broker membulatkan fee berbeda, pakai angka dari trade confirmation.
 | 14 | `holdout_mulai` | `config.yaml → backtest` | Tetapkan sekali sebelum backtest pertama, lalu jangan diubah |
 
 Item 6–8 sengaja dikosongkan. Program tetap berjalan tanpa nilai tersebut dengan perilaku aman (§7), dan setiap laporan akan mengingatkan Anda.
+
+Letak, format, dan contoh isian setiap item ada di `contoh/PANDUAN_ISI.md` (§5). Semua nilai di `contoh/` fiktif; aturan BEI di `contoh/config_bei_contoh.yaml` sengaja dibuat tidak mirip aturan sungguhan dan tidak boleh disalin angkanya.
 
 ---
 

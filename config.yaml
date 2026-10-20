@@ -41,6 +41,7 @@ pasar:
 
   # ======================================================================
   # ATURAN & JADWAL BEI — WAJIB DICEK DI idx.co.id. JANGAN DIISI DARI INGATAN.
+  # Bentuk isian (angka FIKTIF): contoh/config_bei_contoh.yaml; panduan: contoh/PANDUAN_ISI.md.
   # Aturan perdagangan banyak berubah pada 2026. Selama 'terverifikasi: false':
   #   - jadwal_sesi : bar hari ini baru dianggap final setelah jadwal.jam_run; setiap run
   #                   pada tanggal t+1 diberi banner untuk memastikan masih sebelum pra-pembukaan;
