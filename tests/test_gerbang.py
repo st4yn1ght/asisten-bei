@@ -33,8 +33,8 @@ from test_metrik import UBAH_INTEGRASI, buat_posisi, pasar_integrasi, simulasi_i
 D = Decimal
 
 # FIKTIF – KHUSUS UJI: angka buatan, BUKAN aturan BEI.
-ARA_FIKTIF = [{"harga_min": 0, "harga_maks": None, "batas_pct": 77}]
-ARB_FIKTIF = [{"harga_min": 0, "harga_maks": None, "batas_pct": 33}]
+ARA_FIKTIF = [{"harga_min": 0, "harga_maks": None, "jenis": "pct", "batas": 77}]
+ARB_FIKTIF = [{"harga_min": 0, "harga_maks": None, "jenis": "pct", "batas": 33}]
 FRAKSI_FIKTIF = [{"harga_min": 0, "harga_maks": 1234, "fraksi": 3}, {"harga_min": 1234, "harga_maks": None, "fraksi": 7}]
 JAM_FIKTIF = {"jam_penutupan": "03:17", "jam_pra_pembukaan": "02:05"}
 

@@ -70,8 +70,8 @@ TABEL_FRAKSI_FIKTIF = [
     {"harga_min": 2000, "harga_maks": None, "fraksi": 25},
 ]
 # --- ARA/ARB FIKTIF – KHUSUS UJI: ARA 11 %, ARB 13 % dari close kemarin, satu baris untuk semua harga ---
-ARA_FIKTIF = [{"harga_min": 0, "harga_maks": None, "batas_pct": 11}]
-ARB_FIKTIF = [{"harga_min": 0, "harga_maks": None, "batas_pct": 13}]
+ARA_FIKTIF = [{"harga_min": 0, "harga_maks": None, "jenis": "pct", "batas": 11}]
+ARB_FIKTIF = [{"harga_min": 0, "harga_maks": None, "jenis": "pct", "batas": 13}]
 BERLAKU_FIKTIF = date(2025, 1, 6)  # berlaku_mulai FIKTIF (sebelum semua tanggal skenario)
 BERLAKU_NANTI = date(2026, 6, 1)  # berlaku_mulai FIKTIF sesudah semua tanggal skenario
 
