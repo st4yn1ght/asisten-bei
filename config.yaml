@@ -97,7 +97,7 @@ data:
   akhiran_yfinance: ".JK"
   simbol_ihsg: {yfinance: "^JKSE", csv_manual: "IHSG"}
   pengali_volume: 1                    # volume harus dalam lembar; cek sekali (§22.3)
-  pengali_volume_terverifikasi: false
+  pengali_volume_terverifikasi: true
   jeda_data_final_menit: 60            # dipakai hanya jika jadwal_sesi terverifikasi
   jeda_antar_permintaan_detik: 0.5
   jeda_batas_permintaan_detik: 60
