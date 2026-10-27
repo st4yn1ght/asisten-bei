@@ -522,7 +522,7 @@ def test_filter_log_menyensor_pesan_argumen_dan_traceback(penyaring_baru):
 
 
 def _ctx(akar: Path, **ubah_operasional) -> KonteksApp:
-    data = yaml.safe_load((AKAR_PROYEK / "config.yaml").read_text(encoding="utf-8"))
+    data = yaml.safe_load((AKAR_PROYEK / "tests" / "fixtures" / "config_rilis.yaml").read_text(encoding="utf-8"))
     data["operasional"].update(ubah_operasional)
     return KonteksApp(cfg=validasi_dict(data), akar=akar, path_config=akar / "config.yaml")
 

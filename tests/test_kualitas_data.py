@@ -62,7 +62,7 @@ UBAH_KECIL = {
 
 
 def buat_cfg(ubah: dict | None = None) -> Config:
-    with open(AKAR_PROYEK / "config.yaml", encoding="utf-8") as f:
+    with open(AKAR_PROYEK / "tests" / "fixtures" / "config_rilis.yaml", encoding="utf-8") as f:
         data = yaml.safe_load(f)
     for kunci, nilai in (ubah or {}).items():
         simpul = data

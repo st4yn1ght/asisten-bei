@@ -1,0 +1,108 @@
+# BUKAN SARAN INVESTASI. CONTOH FORMAT untuk bagian config.yaml yang harus Anda cek dan isi sendiri (SPEC §24).
+#
+# BERKAS INI TIDAK DIBACA PROGRAM. Isinya hanya menunjukkan bentuk isian yang benar.
+# Cara pakai:
+#   1. Buka config.yaml dengan Notepad dan cari bagian dengan nama yang sama (mis. "pasar:" → "jadwal_sesi:").
+#   2. UBAH NILAINYA LANGSUNG di bagian config.yaml yang sudah ada. JANGAN menempel (paste) blok dari berkas ini:
+#      config.yaml sudah punya bagian yang sama, dan cek menolak bagian yang muncul dua kali.
+#   3. Jangan menyalin angka dari berkas ini: semua jam, tabel fraksi, persentase ARA/ARB, dan fee di bawah
+#      FIKTIF dan sengaja dibuat aneh (mis. jam 03:17, fraksi 3 dan 9, ARA 77 %, fee 0.1234 %), agar tidak
+#      tertukar dengan nilai sungguhan. Aturan BEI banyak berubah pada 2026; isi hanya dari idx.co.id.
+#   4. Ubah "terverifikasi" menjadi true HANYA setelah semua nilai di blok itu Anda ganti dan cocokkan.
+#      cek menolak blok aturan BEI bertanda true yang "sumber"-nya masih berisi teks "CONTOH FIKTIF".
+#   5. Jalankan cek (di folder proyek: .venv\Scripts\python -m asisten_bei cek). Bila ada ERROR, pesannya
+#      menyebut kunci yang salah. Panduan lengkap: contoh/PANDUAN_ISI.md.
+#   6. Putuskan semua bagian ini sebelum backtest pertama: mengubah fee, tabel fraksi/ARA, pengali_volume, atau
+#      stop_aktif_hari_entry sesudah holdout dilihat dicatat sebagai konfigurasi aturan baru (SPEC §16.4).
+#
+# Aturan penulisan YAML: indentasi memakai spasi (bukan tab); teks, jam, dan tanggal diapit tanda kutip ganda;
+# angka desimal memakai titik (0.15, bukan 0,15); angka TANPA pemisah ribuan (5000, bukan 5.000 — YAML membaca
+# 5.000 sebagai 5 tanpa pesan error); "null" berarti kosong.
+
+pasar:
+  # --- Item 6: jadwal sesi ---------------------------------------------------------------------------
+  # Sumber: jadwal perdagangan terbaru di idx.co.id. Jam dalam WIB, format 24 jam "HH:MM".
+  jadwal_sesi:
+    terverifikasi: false                       # → true setelah dua jam di bawah diganti dari idx.co.id
+    sumber: "CONTOH FIKTIF - ganti dengan judul pengumuman + URL halaman idx.co.id yang Anda baca"
+    tanggal_cek: "2026-10-20"                  # tanggal Anda membaca sumber itu (YYYY-MM-DD)
+    jam_penutupan: "03:17"                     # FIKTIF. Jam penutupan perdagangan hari bursa biasa
+    jam_pra_pembukaan: "02:05"                 # FIKTIF. Jam mulai sesi pra-pembukaan
+
+  # --- Item 7: tabel fraksi harga -------------------------------------------------------------------
+  # Sumber: peraturan perdagangan terbaru di idx.co.id (satuan perubahan harga per rentang harga).
+  # Satu baris per rentang harga. harga_min ikut rentang itu, harga_maks tidak (= harga_min baris berikutnya).
+  # Baris harus bersambung tanpa celah; baris terakhir harga_maks: null (= tanpa batas atas).
+  fraksi_harga:
+    terverifikasi: false                       # → true setelah tabel dan berlaku_mulai diganti
+    sumber: "CONTOH FIKTIF - ganti dengan nomor/judul peraturan + URL idx.co.id"
+    tanggal_cek: "2026-10-20"
+    berlaku_mulai: "2099-01-01"                # FIKTIF. Isi tanggal mulai berlaku menurut peraturan
+    tabel:
+      - {harga_min: 0, harga_maks: 123, fraksi: 1}          # FIKTIF: harga 0 s.d. di bawah 123 → kelipatan 1
+      - {harga_min: 123, harga_maks: 4567, fraksi: 3}       # FIKTIF: 123 s.d. di bawah 4567 → kelipatan 3
+      - {harga_min: 4567, harga_maks: null, fraksi: 9}      # FIKTIF: 4567 ke atas → kelipatan 9
+
+  # --- Item 8: batas auto reject (ARA/ARB) ----------------------------------------------------------
+  # Sumber: peraturan/pengumuman auto rejection terbaru di idx.co.id. Setiap baris memakai salah satu jenis:
+  #   jenis: pct → batas = persen dari harga acuan (batas atas = acuan × (1 + batas/100), bawah = × (1 − batas/100))
+  #   jenis: abs → batas = rupiah dari harga acuan (batas atas = acuan + batas, bawah = acuan − batas)
+  # Rentang harga ditulis seperti tabel fraksi (harga_maks tidak ikut). Untuk "Rp 1 s.d. Rp 10" tulis
+  # harga_min: 1, harga_maks: 11. Bila aturan memakai satu persentase untuk semua harga, cukup satu baris:
+  # {harga_min: 0, harga_maks: null, jenis: pct, batas: <angka>}.
+  auto_reject:
+    terverifikasi: false                       # → true setelah semua nilai diganti
+    sumber: "CONTOH FIKTIF - ganti dengan nomor/judul peraturan + URL idx.co.id"
+    tanggal_cek: "2026-10-20"
+    berlaku_mulai: "2099-01-01"                # FIKTIF
+    papan_berlaku: "CONTOH FIKTIF - tulis papan pencatatan yang diatur, sesuai peraturan"
+    harga_acuan: "close_kemarin"               # satu-satunya nilai yang didukung program; isi hanya bila
+                                               # peraturan memang memakai harga penutupan hari sebelumnya
+    ara:
+      - {harga_min: 0, harga_maks: 44, jenis: abs, batas: 3}         # FIKTIF: acuan Rp 0–43 → naik maks Rp 3
+      - {harga_min: 44, harga_maks: 444, jenis: pct, batas: 77}      # FIKTIF: acuan Rp 44–443 → naik maks 77 %
+      - {harga_min: 444, harga_maks: null, jenis: pct, batas: 33}    # FIKTIF
+    arb:
+      - {harga_min: 0, harga_maks: 44, jenis: abs, batas: 2}         # FIKTIF: acuan Rp 0–43 → turun maks Rp 2
+      - {harga_min: 44, harga_maks: null, jenis: pct, batas: 9}      # FIKTIF
+
+# --- Item 9: biaya broker -------------------------------------------------------------------------------
+# Sumber: trade confirmation (bukti transaksi) dari broker Anda. Contoh hitung FIKTIF:
+#   Beli : nilai transaksi Rp 1000000, total biaya beli tercatat Rp 1234 → 1234 ÷ 1000000 × 100 = 0.1234
+#   Jual : nilai transaksi Rp 1000000, total biaya jual (termasuk pajak) Rp 5678 → 0.5678
+#   Biaya minimum: lihat apakah transaksi kecil tetap dikenai biaya tetap; 0 bila tidak ada.
+#   Pembulatan: bila biaya di bukti transaksi selalu dibulatkan ke rupiah, pilih "rupiah_terdekat" atau
+#   "rupiah_ke_atas"; null bila tidak dibulatkan.
+# Nilai di config.yaml saat ini (0.15 dan 0.25) adalah keputusan awal Anda; ubah hanya bila bukti transaksi
+# menunjukkan angka lain.
+biaya:
+  fee_beli_pct: 0.1234                         # FIKTIF
+  fee_jual_pct: 0.5678                         # FIKTIF
+  fee_minimum_idr: 0                           # 0 = tidak ada biaya minimum
+  pembulatan_fee: null                         # null / "rupiah_terdekat" / "rupiah_ke_atas"
+  slippage_pct: 0.10                           # asumsi selisih harga per sisi; bukan dari broker
+  terverifikasi: false                         # → true setelah fee cocok dengan trade confirmation
+
+# --- Item 10: satuan volume ------------------------------------------------------------------------------
+# Sesudah unduh dan selagi pengali_volume masih 1, jalankan
+#   .venv\Scripts\python -m asisten_bei cek --silang KODE YYYY-MM-DD
+# untuk 3 saham (SPEC §22.3 langkah 3), lalu bandingkan volume baris "Bar cache" dengan ringkasan perdagangan
+# resmi dalam LEMBAR (bila sumber menampilkan lot, kalikan 100 dulu). Contoh hitung FIKTIF:
+#   volume program 1234500 lembar, volume resmi 1234500 lembar → rasio 1 → pengali_volume: 1
+# Bila rasionya berbeda di ketiga saham, JANGAN pakai satu pengali: biarkan terverifikasi false (masalah data).
+data:
+  pengali_volume: 1
+  pengali_volume_terverifikasi: false          # → true setelah rasio ketiga saham sama
+
+# --- Item 11: fitur order broker ---------------------------------------------------------------------------
+# Lihat contoh/cek_fitur_broker.md. Bila broker TIDAK bisa memasang order otomatis stop pada saham yang
+# baru dibeli hari itu, ubah ke false sebelum backtest pertama.
+entry:
+  stop_aktif_hari_entry: true
+
+# --- Item 14: awal periode holdout -------------------------------------------------------------------------
+# Tetapkan SEKALI sebelum backtest pertama, lalu jangan diubah. Data sejak tanggal ini disisihkan untuk menguji
+# strategi secara jujur (SPEC §16.4). Pilih tanggal yang menyisakan cukup data sesudahnya agar holdout bisa
+# memuat ≥ gerbang.min_transaksi_holdout (30) transaksi. Nilai di bawah sama dengan default config.yaml.
+backtest:
+  holdout_mulai: "2024-10-01"

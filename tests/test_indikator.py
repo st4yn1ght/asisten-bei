@@ -25,7 +25,7 @@ NAN = math.nan
 
 # Config dasar = config.yaml rilis (hanya dibaca); setiap parameter yang dipakai uji di-set eksplisit
 # agar uji tidak bergantung pada nilai yang mungkin diubah pengguna.
-_DASAR = baca_yaml(AKAR_PROYEK / "config.yaml")
+_DASAR = baca_yaml(AKAR_PROYEK / "tests" / "fixtures" / "config_rilis.yaml")
 _TETAP = {
     "indikator.atr_periode": 14,
     "likuiditas.periode_hari": 20,

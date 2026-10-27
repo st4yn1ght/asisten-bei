@@ -72,8 +72,8 @@ pasar:
     berlaku_mulai: null                # YYYY-MM-DD; ARA/ARB hanya dimodelkan untuk tanggal ≥ ini
     papan_berlaku: ""                  # informasi saja; ditampilkan di laporan bersama sumber
     harga_acuan: null                  # isi dari peraturan, mis. "close_kemarin" jika memang demikian
-    ara: []                            # - {harga_min: <angka>, harga_maks: <angka|null>, batas_pct: <angka>}
-    arb: []                            # - {harga_min: <angka>, harga_maks: <angka|null>, batas_pct: <angka>}
+    ara: []                            # - {harga_min: <angka>, harga_maks: <angka|null>, jenis: pct|abs, batas: <angka>}
+    arb: []                            # - {harga_min: <angka>, harga_maks: <angka|null>, jenis: pct|abs, batas: <angka>}
     # Jika aturan memakai satu persentase untuk semua harga: satu baris, harga_min 0, harga_maks null. Aturan rentang sama dengan fraksi_harga.
 
 data:

@@ -471,15 +471,15 @@ def fraksi_fiktif(berlaku_mulai: str) -> dict:
 
 
 def ara_fiktif(berlaku_mulai: str = "2026-01-05", ara: list[float] | None = None) -> dict:
-    # Batas FIKTIF – KHUSUS UJI (bukan batas auto rejection BEI). `ara`: batas_pct per rentang harga.
+    # Batas FIKTIF – KHUSUS UJI (bukan batas auto rejection BEI). `ara`: batas persen (jenis pct) per rentang harga.
     ara = [33.0] if ara is None else ara
     batas = [100.0 * (i + 1) for i in range(len(ara) - 1)] + [None]
     baris = []
     for i, pct in enumerate(ara):
-        baris.append({"harga_min": 0 if i == 0 else batas[i - 1], "harga_maks": batas[i], "batas_pct": pct})
+        baris.append({"harga_min": 0 if i == 0 else batas[i - 1], "harga_maks": batas[i], "jenis": "pct", "batas": pct})
     return {"terverifikasi": True, "sumber": SUMBER_ARA, "tanggal_cek": "2026-10-01",
             "berlaku_mulai": berlaku_mulai, "papan_berlaku": "FIKTIF", "harga_acuan": "close_kemarin",
-            "ara": baris, "arb": [{"harga_min": 0, "harga_maks": None, "batas_pct": 13.0}]}
+            "ara": baris, "arb": [{"harga_min": 0, "harga_maks": None, "jenis": "pct", "batas": 13.0}]}
 
 
 def test_item_terverifikasi_fiktif_dengan_sumber_dan_berlaku_mulai(akar_uji):
@@ -549,6 +549,19 @@ def test_lonjakan_mencurigakan_tidak_di_atas_ara_tertinggi_peringatan(akar_uji, 
     h = cek(akar_uji)
     assert h.kode == 0, h.teks
     assert h.ada("lonjakan_mencurigakan_pct") == peringatan, h.teks
+
+
+def test_lonjakan_mencurigakan_hanya_dibandingkan_dengan_baris_ara_pct(akar_uji):
+    """Baris abs (rupiah) tidak ikut perbandingan (SPEC §7 data.validasi): abs Rp 5 pada acuan Rp 1 setara 500 %."""
+    ar = ara_fiktif(ara=[33.0, 35.0])  # FIKTIF
+    ar["ara"][0] = {"harga_min": 0, "harga_maks": 100.0, "jenis": "abs", "batas": 5}
+    tulis_config(akar_uji, {"pasar.auto_reject": ar})
+    h = cek(akar_uji)
+    assert h.kode == 0 and not h.ada("lonjakan_mencurigakan_pct"), h.teks
+    ar["ara"][1]["batas"] = 45.0  # baris pct di atas ambang → peringatan, menyebut 45 %
+    tulis_config(akar_uji, {"pasar.auto_reject": ar})
+    h = cek(akar_uji)
+    assert h.ada("lonjakan_mencurigakan_pct", "45"), h.teks
 
 
 # ---------------------------------------------------------------------------

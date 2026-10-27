@@ -1,0 +1,3 @@
+kode,tanggal_beli,harga_beli,lot,strategi,stop_awal,sektor,harga_per_tanggal,lembar,catatan
+AAAA,2026-10-08,2850,2,PB,2720,,,,contoh: saham di universe.csv sehingga sektor boleh kosong
+KKKK,2026-09-14,400,4,MANUAL,370,Properti,,,contoh: saham di luar universe.csv wajib diisi sektornya

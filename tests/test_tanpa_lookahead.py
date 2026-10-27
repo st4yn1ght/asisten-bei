@@ -39,7 +39,7 @@ SEED = 20261015
 # Config & kalender uji
 # ---------------------------------------------------------------------------
 
-_DASAR = baca_yaml(AKAR_PROYEK / "config.yaml")  # hanya dibaca; parameter yang relevan di-set eksplisit
+_DASAR = baca_yaml(AKAR_PROYEK / "tests" / "fixtures" / "config_rilis.yaml")  # hanya dibaca; parameter yang relevan di-set eksplisit
 _UBAH = {
     "indikator.atr_periode": 14,
     "likuiditas.periode_hari": 20,

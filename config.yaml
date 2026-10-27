@@ -41,6 +41,7 @@ pasar:
 
   # ======================================================================
   # ATURAN & JADWAL BEI — WAJIB DICEK DI idx.co.id. JANGAN DIISI DARI INGATAN.
+  # Bentuk isian (angka FIKTIF): contoh/config_bei_contoh.yaml; panduan: contoh/PANDUAN_ISI.md.
   # Aturan perdagangan banyak berubah pada 2026. Selama 'terverifikasi: false':
   #   - jadwal_sesi : bar hari ini baru dianggap final setelah jadwal.jam_run; setiap run
   #                   pada tanggal t+1 diberi banner untuk memastikan masih sebelum pra-pembukaan;
@@ -49,30 +50,44 @@ pasar:
   #   - setiap laporan menampilkan peringatan.
   # ======================================================================
   jadwal_sesi:
-    terverifikasi: false
-    sumber: ""                         # judul + URL halaman idx.co.id yang Anda baca
-    tanggal_cek: null                  # YYYY-MM-DD
-    jam_penutupan: null                # "HH:MM" WIB, hari bursa biasa
-    jam_pra_pembukaan: null            # "HH:MM" WIB, awal sesi pra-pembukaan
+    terverifikasi: false               # ubah ke true setelah Anda yakin semua nilai blok ini benar
+    sumber: "Jam dan Mekanisme Perdagangan (https://www.idx.co.id/id/produk/mekanisme-dan-jam-perdagangan)"
+    tanggal_cek: "2026-10-21"          # YYYY-MM-DD
+    jam_penutupan: "16:00"             # "HH:MM" WIB, hari bursa biasa
+    jam_pra_pembukaan: "08:45"         # "HH:MM" WIB, awal sesi pra-pembukaan
   fraksi_harga:
-    terverifikasi: false
-    sumber: ""
-    tanggal_cek: null
-    berlaku_mulai: null                # YYYY-MM-DD; sebelum tanggal ini tidak ada pembulatan ke fraksi
-    tabel: []
-    # Format per baris (harga_maks null = tak terbatas; harga_min inklusif, harga_maks eksklusif;
-    # baris harus bersambung tanpa celah/tumpang tindih, baris terakhir harga_maks null):
-    #   - {harga_min: <angka>, harga_maks: <angka|null>, fraksi: <angka>}
+    terverifikasi: false               # ubah ke true setelah Anda yakin semua nilai blok ini benar
+    sumber: "Jam dan Mekanisme Perdagangan (https://www.idx.co.id/id/produk/mekanisme-dan-jam-perdagangan)"
+    tanggal_cek: "2026-10-21"
+    berlaku_mulai: "2026-10-20"        # YYYY-MM-DD; sebelum tanggal ini tidak ada pembulatan ke fraksi
+    # harga_min ikut rentang, harga_maks tidak (= harga_min baris berikutnya); baris terakhir harga_maks null.
+    tabel:
+      - {harga_min: 0, harga_maks: 200, fraksi: 1}
+      - {harga_min: 200, harga_maks: 500, fraksi: 2}
+      - {harga_min: 500, harga_maks: 2000, fraksi: 5}
+      - {harga_min: 2000, harga_maks: 5000, fraksi: 10}
+      - {harga_min: 5000, harga_maks: null, fraksi: 25}
   auto_reject:
-    terverifikasi: false
-    sumber: ""
-    tanggal_cek: null
-    berlaku_mulai: null                # YYYY-MM-DD; ARA/ARB hanya dimodelkan untuk tanggal ≥ ini
-    papan_berlaku: ""                  # informasi saja; ditampilkan di laporan bersama sumber
-    harga_acuan: null                  # isi dari peraturan, mis. "close_kemarin" jika memang demikian
-    ara: []                            # - {harga_min: <angka>, harga_maks: <angka|null>, batas_pct: <angka>}
-    arb: []                            # - {harga_min: <angka>, harga_maks: <angka|null>, batas_pct: <angka>}
-    # Jika aturan memakai satu persentase untuk semua harga: satu baris, harga_min 0, harga_maks null. Aturan rentang sama dengan fraksi_harga.
+    terverifikasi: false               # ubah ke true setelah Anda yakin semua nilai blok ini benar
+    sumber: "Jam dan Mekanisme Perdagangan (https://www.idx.co.id/id/produk/mekanisme-dan-jam-perdagangan)"
+    tanggal_cek: "2026-10-21"
+    berlaku_mulai: "2026-10-20"        # YYYY-MM-DD; ARA/ARB hanya dimodelkan untuk tanggal ≥ ini
+    papan_berlaku: "Saham Papan Utama, Ekonomi Baru, dan Pengembangan"
+    harga_acuan: "close_kemarin"
+    # jenis pct: batas = persen dari harga acuan; jenis abs: batas = rupiah dari harga acuan.
+    # Rentang seperti fraksi_harga: harga_maks tidak ikut. Baris 1–11 = harga acuan Rp 1–10, 11–15 = Rp 11–14.
+    ara:
+      - {harga_min: 1, harga_maks: 11, jenis: abs, batas: 1}
+      - {harga_min: 11, harga_maks: 15, jenis: pct, batas: 35}
+      - {harga_min: 15, harga_maks: 200, jenis: pct, batas: 35}
+      - {harga_min: 200, harga_maks: 5000, jenis: pct, batas: 25}
+      - {harga_min: 5000, harga_maks: null, jenis: pct, batas: 20}
+    arb:
+      - {harga_min: 1, harga_maks: 11, jenis: abs, batas: 1}
+      - {harga_min: 11, harga_maks: 15, jenis: abs, batas: 1}
+      - {harga_min: 15, harga_maks: 200, jenis: pct, batas: 7}
+      - {harga_min: 200, harga_maks: 5000, jenis: pct, batas: 7}
+      - {harga_min: 5000, harga_maks: null, jenis: pct, batas: 7}
 
 data:
   provider_urutan: [yfinance, csv_manual]
@@ -95,7 +110,7 @@ data:
   min_bar_tumpang_tindih_sambungan: 5
   file_anomali_ok: input/anomali_ok.csv
   validasi:
-    lonjakan_mencurigakan_pct: 40      # setelah ARA/ARB diverifikasi, pastikan di atas batas tertinggi
+    lonjakan_mencurigakan_pct: 40      # setelah ARA/ARB diverifikasi, pastikan di atas batas ARA pct tertinggi
     jendela_kelengkapan_bar: 60
     maks_bar_hilang: 2
     min_cakupan_universe_pct: 80
