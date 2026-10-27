@@ -1,0 +1,13 @@
+# CONTOH FORMAT (BUKAN SARAN INVESTASI). Salin ke input/akun.yaml lalu ganti kedua nilai dengan data akun Anda.
+# kas_idr   : uang tunai Anda SETELAH semua pembelian dan penjualan yang sudah terisi dikurangkan/ditambahkan,
+#             termasuk yang belum settle. Bukan limit beli/trading limit, tanpa dana pembiayaan/margin.
+#             Tulis TANPA titik ribuan: Rp 950.000 → 950000 (950.000 dibaca 950 rupiah). Boleh 0.
+# diperbarui: tanggal saldo itu, format YYYY-MM-DD. Perbarui setiap ada transaksi atau setoran.
+#             Contoh ini sengaja bertanggal 2099 agar cek memperingatkan bila tersalin tanpa diganti.
+#
+# Angka contoh ini = modal 3000000 dikurangi dua pembelian di contoh/input/portfolio.csv (fee beli 0,15 %):
+#   AAAA 2 lot × 100 × 2850 = 570000 + fee 855 = 570855
+#   KKKK 4 lot × 100 × 400  = 160000 + fee 240 = 160240
+#   3000000 − 570855 − 160240 = 2268905
+kas_idr: 3000000
+diperbarui: 2026-10-21

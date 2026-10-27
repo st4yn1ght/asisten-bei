@@ -21,11 +21,11 @@ risiko:
 
 biaya:
   fee_beli_pct: 0.15
-  fee_jual_pct: 0.25                   # termasuk pajak penjualan; cocokkan dengan trade confirmation
+  fee_jual_pct: 0.15                   # termasuk pajak penjualan; cocokkan dengan trade confirmation
   fee_minimum_idr: 0                   # per transaksi beli atau jual; 0 = tidak ada
   pembulatan_fee: null                 # null = tidak dibulatkan; "rupiah_terdekat" (ROUND_HALF_UP) / "rupiah_ke_atas"
   slippage_pct: 0.10                   # per sisi; dipakai di sizing (sisi stop), backtest, dan jurnal
-  terverifikasi: false                 # ubah ke true setelah dicocokkan dengan trade confirmation
+  terverifikasi: true                 # ubah ke true setelah dicocokkan dengan trade confirmation
 
 entry:
   gap_maks_atr: 0.5                    # harga_maks = close_t + 0.5 × ATR_t
@@ -50,13 +50,13 @@ pasar:
   #   - setiap laporan menampilkan peringatan.
   # ======================================================================
   jadwal_sesi:
-    terverifikasi: false               # ubah ke true setelah Anda yakin semua nilai blok ini benar
+    terverifikasi: true               # ubah ke true setelah Anda yakin semua nilai blok ini benar
     sumber: "Jam dan Mekanisme Perdagangan (https://www.idx.co.id/id/produk/mekanisme-dan-jam-perdagangan)"
     tanggal_cek: "2026-10-21"          # YYYY-MM-DD
     jam_penutupan: "16:00"             # "HH:MM" WIB, hari bursa biasa
     jam_pra_pembukaan: "08:45"         # "HH:MM" WIB, awal sesi pra-pembukaan
   fraksi_harga:
-    terverifikasi: false               # ubah ke true setelah Anda yakin semua nilai blok ini benar
+    terverifikasi: true               # ubah ke true setelah Anda yakin semua nilai blok ini benar
     sumber: "Jam dan Mekanisme Perdagangan (https://www.idx.co.id/id/produk/mekanisme-dan-jam-perdagangan)"
     tanggal_cek: "2026-10-21"
     berlaku_mulai: "2026-10-20"        # YYYY-MM-DD; sebelum tanggal ini tidak ada pembulatan ke fraksi
@@ -68,7 +68,7 @@ pasar:
       - {harga_min: 2000, harga_maks: 5000, fraksi: 10}
       - {harga_min: 5000, harga_maks: null, fraksi: 25}
   auto_reject:
-    terverifikasi: false               # ubah ke true setelah Anda yakin semua nilai blok ini benar
+    terverifikasi: true               # ubah ke true setelah Anda yakin semua nilai blok ini benar
     sumber: "Jam dan Mekanisme Perdagangan (https://www.idx.co.id/id/produk/mekanisme-dan-jam-perdagangan)"
     tanggal_cek: "2026-10-21"
     berlaku_mulai: "2026-10-20"        # YYYY-MM-DD; ARA/ARB hanya dimodelkan untuk tanggal ≥ ini
@@ -97,7 +97,7 @@ data:
   akhiran_yfinance: ".JK"
   simbol_ihsg: {yfinance: "^JKSE", csv_manual: "IHSG"}
   pengali_volume: 1                    # volume harus dalam lembar; cek sekali (§22.3)
-  pengali_volume_terverifikasi: false
+  pengali_volume_terverifikasi: true
   jeda_data_final_menit: 60            # dipakai hanya jika jadwal_sesi terverifikasi
   jeda_antar_permintaan_detik: 0.5
   jeda_batas_permintaan_detik: 60

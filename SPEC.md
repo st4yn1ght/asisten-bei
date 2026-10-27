@@ -2057,12 +2057,17 @@ Jika broker membulatkan fee berbeda, pakai angka dari trade confirmation.
 | 8 | **Batas ARA/ARB**, harga acuan, tanggal berlaku | `config.yaml → pasar.auto_reject` | Peraturan/pengumuman terbaru di idx.co.id |
 | 9 | Fee beli/jual, biaya minimum, pembulatan fee → `biaya.terverifikasi: true` | `config.yaml → biaya` | Trade confirmation broker |
 | 10 | Satuan volume → `pengali_volume_terverifikasi: true` | `config.yaml → data` | §22.3 langkah 3 |
-| 11 | **Fitur order di broker Anda:** (a) order otomatis stop/target, termasuk atas saham yang dibeli hari itu; (b) cara menarik order yang tidak terisi saat pembukaan, dan apakah ada validitas order yang otomatis batal; (c) cara menjual di harga pembukaan; (d) apakah hasil jual yang belum terjadi dihitung dalam limit beli | — | Broker Anda. Jika (a) tidak tersedia di hari pembelian, setel `entry.stop_aktif_hari_entry: false` lalu jalankan ulang backtest. Jika asumsi lain tidak berlaku, perbarui SPEC. |
+| 11 | **Fitur order di broker Anda:** (a) order otomatis stop/target, termasuk atas saham yang dibeli hari itu; (b) cara menarik order yang tidak terisi saat pembukaan, dan apakah ada validitas order yang otomatis batal; (c) cara menjual di harga pembukaan; (d) apakah hasil jual yang belum terjadi dihitung dalam limit beli | — | Broker Anda. Jika (a) tidak tersedia di hari pembelian, setel `entry.stop_aktif_hari_entry: false` lalu jalankan ulang backtest. Jika asumsi lain tidak berlaku, perbarui SPEC. **Jawaban Anda (dicatat 2026-10-27):** (b) order hanya berlaku hari itu; (d) hasil jual yang belum terjadi ikut dihitung dalam limit beli. Lihat catatan di bawah tabel. |
 | 12 | Saldo kas dan posisi | `input/akun.yaml`, `input/portfolio.csv` | Akun broker, setiap ada transaksi (§19.6) |
 | 13 | Token & chat ID Telegram | `.env` | @BotFather |
 | 14 | `holdout_mulai` | `config.yaml → backtest` | Tetapkan sekali sebelum backtest pertama, lalu jangan diubah |
 
 Item 6–8 sengaja dikosongkan. Program tetap berjalan tanpa nilai tersebut dengan perilaku aman (§7), dan setiap laporan akan mengingatkan Anda.
+
+**Akibat jawaban item 11:**
+
+- **(b) Order hanya berlaku hari itu.** Order beli yang tidak ditarik batal sendiri di akhir hari, tetapi sampai saat itu masih bisa terisi di tengah sesi, di harga yang tidak diuji backtest (§15.2: order beli hanya dimodelkan terisi di pembukaan). Karena itu instruksi §14.3 tetap berlaku: tarik order yang tidak terisi segera setelah pembukaan. Tidak ada perubahan config.
+- **(d) Hasil jual yang belum terjadi ikut dihitung dalam limit beli.** Broker mengizinkan beli yang dibiayai order jual yang masih menunggu, tetapi program **tetap tidak memakainya** (`risiko.dana_jual_langsung_dipakai: false`, §25 butir 3; keputusan Anda 2026-10-27). Bila jual terjadwal gagal terisi (mis. terkunci ARB), beli yang dibiayainya bisa membuat kas minus. Jadi rekomendasi beli hanya dibiayai kas `akun.yaml`. Limit beli di aplikasi broker bisa terlihat lebih besar daripada kas yang dipakai program; ini disengaja.
 
 Letak, format, dan contoh isian setiap item ada di `contoh/PANDUAN_ISI.md` (§5). Semua nilai di `contoh/` fiktif; aturan BEI di `contoh/config_bei_contoh.yaml` sengaja dibuat tidak mirip aturan sungguhan dan tidak boleh disalin angkanya.
 
@@ -2074,7 +2079,7 @@ Keputusan berikut diambil saat menyusun spesifikasi. Semuanya bisa diubah lewat 
 
 1. **Slippage 0,10% per sisi** dipakai di backtest, jurnal, **dan sizing sisi stop**, sehingga kerugian di level stop tetap ≤ 1% sesuai keputusan Anda. Akibatnya contoh A menjadi 1 lot, bukan 2.
 2. **Gerbang memakai PF dan drawdown dalam satuan R** (PF_R, max drawdown 15R), agar tidak terdistorsi ukuran posisi. PF Rupiah tetap ditampilkan.
-3. **Hasil jual di open tidak membiayai beli di open yang sama** (`dana_jual_langsung_dipakai: false`). Slot dari jual terjadwal tetap boleh dipakai.
+3. **Hasil jual di open tidak membiayai beli di open yang sama** (`dana_jual_langsung_dipakai: false`). Slot dari jual terjadwal tetap boleh dipakai. Dikonfirmasi tetap `false` walaupun broker Anda menghitung hasil jual yang belum terjadi dalam limit beli (§24 item 11 d).
 4. **Dividen diabaikan;** harga hanya disesuaikan untuk split. Sizing backtest memakai harga nominal.
 5. **Status JANGAN BELI tidak memaksa jual.**
 6. **Tidak ada cooldown** setelah stop dan tidak ada penambahan posisi.
