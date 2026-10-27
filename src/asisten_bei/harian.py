@@ -456,7 +456,12 @@ def _proses_jurnal(ctx, opsi, masukan, pasar, kal_manual, t, t1, sekarang, statu
             hasil_catat = jr.HasilCatat(sudah_tercatat=True)
         n_revisi = jr.tandai_revisi(j, pasar, t)
         turunan = None
-        if status.status != BELUM_TERSEDIA:
+        terakhir = max(diproses, default=t)
+        lampau = t < terakhir  # replay tanggal lampau: data hanya sampai t, turunan terbaru tidak boleh terpotong
+        if lampau:
+            catatan_lampau = (f"replay tanggal lampau ({t.isoformat()} < hari terakhir yang diproses "
+                              f"{terakhir.isoformat()}): hasil_sinyal dan kertas tidak dihitung ulang")
+        if status.status != BELUM_TERSEDIA and not lampau:
             turunan = jr.hitung_ulang_turunan(
                 j, pasar, t, keputusan_pada=keputusan_pada, hash_aturan=gb.hash_aturan_global(cfg),
                 konteks_kertas=resolusi_konteks(cfg, "realistis"), strategi_aktif=aktif,
@@ -465,6 +470,8 @@ def _proses_jurnal(ctx, opsi, masukan, pasar, kal_manual, t, t1, sekarang, statu
         jr.ekspor(j, ctx.path(cfg.jurnal.folder_ekspor))
         ringkas = jr.ringkas(j, t, cfg=cfg, gate=gate, path_run=ctx.path, strategi=aktif, hasil_catat=hasil_catat,
                              hasil_turunan=turunan, n_revisi=n_revisi)
+        if lampau:
+            ringkas.catatan.append(catatan_lampau)
         return ringkas, hasil_catat
 
 

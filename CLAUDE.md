@@ -11,14 +11,16 @@ python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/b
 # Jalankan (opsi global boleh sebelum/sesudah subperintah)
 .venv/bin/python -m asisten_bei [--config config.yaml] [--akar .] cek [--silang KODE YYYY-MM-DD]
 .venv/bin/python -m asisten_bei unduh [--penuh] [--simbol K1,K2]
-.venv/bin/python -m asisten_bei backtest | harian | jurnal | uji-telegram   # tahap berikutnya
+.venv/bin/python -m asisten_bei backtest | harian [--offline --tanggal D --catat] | jurnal [--ekspor --rekonsiliasi]
+.venv/bin/python -m asisten_bei uji-telegram   # tahap 7
 
 # Test (Windows: scripts\uji.bat)
 .venv/bin/python -m pytest -q
 .venv/bin/python -m pytest tests/test_indikator.py -q      # satu berkas
 
-# Bangkitkan ulang data sintetis uji (deterministik)
+# Bangkitkan ulang fixture end-to-end tests/fixtures/e2e/ (deterministik), lalu acuan laporan bila perlu
 .venv/bin/python tests/fixtures/buat_fixture.py
+ASISTEN_BEI_PERBARUI_ACUAN=1 .venv/bin/python -m pytest tests/test_e2e.py -q
 ```
 
 ## Aturan penting

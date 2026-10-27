@@ -330,13 +330,16 @@ asisten-bei/
 │
 └── tests/
     ├── fixtures/
-    │   ├── buat_fixture.py      # pembangkit data sintetis deterministik (§22.2)
+    │   ├── buat_fixture.py      # pembangkit fixture end-to-end deterministik (§22.2) → fixtures/e2e/
     │   ├── config_rilis.yaml    # salinan rilis config.yaml (nilai = blok §7); dasar semua uji
-    │   ├── config_uji.yaml
-    │   ├── config_uji_ujibo.yaml # sama, tetapi file_portfolio → input/portfolio_ujibo.csv
-    │   ├── pasar_sintetis/      # hasil pembangkit dalam format cache §8.3
-    │   ├── input_uji/           # termasuk portfolio.csv (kosong) dan portfolio_ujibo.csv
-    │   └── acuan/               # keluaran acuan (golden) yang diharapkan
+    │   ├── config_uji.yaml      # config uji tahap 1–5 (input_uji/ kecil)
+    │   ├── input_uji/
+    │   └── e2e/                 # dibangkitkan buat_fixture.py dan ikut di-commit
+    │       ├── config_uji.yaml
+    │       ├── config_uji_ujibo.yaml # sama, tetapi file_portfolio → input_uji/portfolio_ujibo.csv
+    │       ├── pasar_sintetis/  # format cache §8.3 (yfinance/<KODE>.parquet + meta)
+    │       ├── input_uji/       # termasuk portfolio.csv (kosong) dan portfolio_ujibo.csv
+    │       └── acuan/           # keluaran acuan (golden) laporan langkah 2
     ├── test_config.py   test_indikator.py   test_tanpa_lookahead.py   test_kalender.py
     ├── test_kualitas_data.py   test_cache.py   test_split.py   test_aturan_bei.py
     ├── test_kondisi_pasar.py   test_universe.py   test_strategi.py   test_skor_seleksi.py
@@ -1651,7 +1654,7 @@ SQLite `data/jurnal.sqlite`. Setiap run harian mengekspor setiap tabel ke `outpu
 5. **Hitung ulang turunan.** `hasil_sinyal` dan `kertas_*` periode berjalan **dihitung ulang dari awal setiap run** dari data terkini (deterministik). Revisi data otomatis tercermin. Laporan menyebut "K transaksi kertas berubah karena revisi data" jika ada (K = transaksi kertas tertutup dari run sebelumnya yang hilang atau berubah). Order kertas yang bar `d+1`-nya belum tersedia berstatus `MENUNGGU`. Tidak dihitung ulang pada run `BELUM_TERSEDIA`.
 6. **Revisi bar.** Jika `bar_saat_sinyal`, setelah dikonversi ke ruang tersesuaikan, berbeda dari data terkini melewati toleransi (`data.toleransi_revisi_pct` untuk OHLC, `data.toleransi_revisi_volume_pct` untuk volume), atau barnya tidak ada lagi, baris diberi tanda `data_direvisi = 1`. Tanda ini tidak pernah dikembalikan ke 0.
 7. **`--catat-ulang`** menghapus baris `sinyal` untuk tanggal yang sedang diproses (`--tanggal`, atau `t`). Penghapusan dicatat di `run.catatan`, lalu sinyal dibangkitkan ulang.
-8. **Replay `--tanggal`** tidak menulis ke jurnal, kecuali diberi `--catat`.
+8. **Replay `--tanggal`** tidak menulis ke jurnal, kecuali diberi `--catat`. Replay dengan `--catat` untuk tanggal sebelum hari terakhir yang pernah diproses hanya mencatat hari yang belum final; `hasil_sinyal` dan `kertas_*` tidak dihitung ulang (datanya hanya sampai tanggal replay), dan laporan menyebutkannya.
 9. **`jurnal --rekonsiliasi`** membandingkan sinyal yang ditampilkan live (`ditampilkan = 1`) dengan sinyal yang dibangkitkan ulang dari data terkini dengan config yang sama.
    - Tanggal yang dibandingkan: tanggal yang punya sinyal `ditampilkan = 1`, ditambah `tanggal_data` setiap run yang mencatat sinyal. Eligibilitas memakai `snapshot_input` hari itu; strategi = strategi `aktif` config saat ini. Data dimuat dari cache sampai min(`tanggal_data` run terakhir, `t` sekarang).
    - Perbedaan (tambah/hilang/level berubah pada `harga_maks`, `stop_awal`, `target_harga`) dilaporkan per baris, dengan petunjuk penyebab: `sementara`, `data_direvisi`, atau hash berbeda.
@@ -1979,15 +1982,15 @@ Jika broker membulatkan fee berbeda, pakai angka dari trade confirmation.
 
 ### 22.2 Skenario end-to-end offline
 
-**Fixture.** `tests/fixtures/buat_fixture.py` (berseed tetap, ikut di-commit) membangkitkan `pasar_sintetis/` dalam format cache §8.3. Konstanta tanggal `T1`, `T_TURUN`, `T_KOSONG` didefinisikan di skrip. `config_uji.yaml` memakai `holdout_mulai` dan ambang gerbang yang longgar (mis. `min_transaksi_holdout: 1`), dan skrip menjamin PB, BO, dan MR lolos gerbang pada data ini.
+**Fixture.** `tests/fixtures/buat_fixture.py` (berseed tetap, ikut di-commit) membangkitkan `tests/fixtures/e2e/`: `pasar_sintetis/` dalam format cache §8.3, `config_uji.yaml`, `config_uji_ujibo.yaml`, dan `input_uji/`. Fixture uji tahap 1–5 (`tests/fixtures/config_uji.yaml`, `input_uji/`) tetap terpisah. Konstanta tanggal `T1`, `T_BO`, `T_HATI`, `T_TURUN`, `T_KOSONG` didefinisikan di skrip; semua tahun data punya entri `holidays.csv` fiktif sehingga kalender manual berlaku. `config_uji.yaml` memakai `holdout_mulai` dan ambang gerbang yang longgar (mis. `min_transaksi_holdout: 1`), dan PB, BO, dan MR lolos gerbang pada data ini (diuji langkah 1). Uji memastikan isi `pasar_sintetis/` sama dengan keluaran pembangkit.
 
 | Saham | Desain | Hasil yang diharapkan |
 |---|---|---|
-| `IHSG` | Periode naik (memuat `T1`), transisi, turun (memuat `T_TURUN`); tanpa volume | Ketiga status pasar muncul pada tanggal yang diketahui |
+| `IHSG` | Periode naik (memuat `T1`), transisi (memuat `T_HATI`), turun (memuat `T_TURUN`); tanpa volume | Ketiga status pasar muncul pada tanggal yang diketahui |
 | ±40 saham breadth | Sebagian baru "melantai" di tengah periode | Penyebut cakupan diuji |
 | `UJIPB` | Memicu PB pada `T1`, lalu kena target | `REKOMENDASI` → `TERISI` → `TARGET` |
 | `UJIBO` | Breakout bervolume, lalu trailing; dipakai di `portfolio_ujibo.csv` | TAHAN + level trailing sesuai hitung tangan |
-| `UJIMR` | RSI2 jatuh, lalu keluar SMA5 pada hari ke-3 | `KELUAR_SMA` |
+| `UJIMR` | RSI2 jatuh (sinyal `T1+1`), lalu keluar SMA5 pada hari ke-3; jatuh lagi pada `T_TURUN` | `KELUAR_SMA`; daftar pantau langkah 7 |
 | `UJIMAHAL` | Harga ± 9.000, sinyal PB pada `T1` dengan jarak stop ≥ 5% | `TIDAK_TERJANGKAU` (alasan risiko) |
 | `UJIMAHAL2` | `harga_maks` tepat 10.500, sinyal pada `T1` dengan jarak stop 2% (risiko 1 lot 26.173,93 ≤ 30.000) | `TIDAK_TERJANGKAU` (alasan alokasi; 1 lot = 1.051.575) |
 | `UJISEKTOR` | Sektor sama dengan `UJIPB`, sinyal pada `T1` dengan skor **lebih rendah** | `BATAS_SEKTOR` |
@@ -2009,11 +2012,13 @@ Jika broker membulatkan fee berbeda, pakai angka dari trade confirmation.
 3. Ulangi langkah 2 → jurnal tidak berubah ("sudah tercatat").
 4. `--tanggal T1+1` → `UJIPB` `TERISI` di open `T1+1`; `UJIGAP` `BATAL_GAP`.
 5. Lompat ke `--tanggal T1+5` (simulasi PC mati 3 hari) → jurnal mengejar: sinyal susulan bertanda `susulan = 1`, `ditampilkan = 0`; `UJIPB` `TARGET` pada tanggal yang diharapkan.
-6. Dengan `--config <tmp>/config_uji_ujibo.yaml` (memakai `portfolio_ujibo.csv`, `tanggal_beli` ≤ `t`), tanpa `--catat` → laporan menampilkan TAHAN + level trailing baru yang cocok dengan hitung tangan.
+6. Dengan `--config <tmp>/config_uji_ujibo.yaml` (memakai `portfolio_ujibo.csv`, `tanggal_beli` = `T_BO+1` ≤ `t`), `--tanggal T1+5` tanpa `--catat` → laporan menampilkan TAHAN + level trailing baru yang cocok dengan hitung tangan; jurnal tidak berubah.
 7. `--tanggal T_TURUN` → JANGAN BELI, nol `REKOMENDASI`, daftar pantau ada, sinyal `BAYANGAN_PASAR` tercatat.
-8. Hapus `gate_status.json` → semua `BAYANGAN_GERBANG`, nol rekomendasi, instruksi menjalankan backtest.
-9. `--tanggal T_KOSONG` (cache tanpa bar `T_KOSONG` untuk sebagian besar saham) → kode 2, banner DATA BELUM TERSEDIA, saran exit tetap ada untuk posisi yang barnya ada.
+8. Hapus `gate_status.json`, lalu `--tanggal T1` lagi → semua `BAYANGAN_GERBANG`, nol rekomendasi, instruksi menjalankan backtest; jurnal "sudah tercatat" dan turunannya tidak terpotong (replay tanggal lampau, §17.3 #8).
+9. `--tanggal T_KOSONG` dengan `config_uji_ujibo.yaml` (cache tanpa bar `T_KOSONG` untuk sebagian besar saham, termasuk IHSG; UJIBO tetap punya) → kode 2, banner DATA BELUM TERSEDIA dengan petunjuk hari libur, saran exit tetap ada untuk posisi yang barnya ada.
 10. `jurnal --rekonsiliasi` → nol selisih.
+
+Langkah 1 (backtest) dijalankan dengan `--mode edge` pada `T_KOSONG`. Acuan laporan langkah 2 dibandingkan setelah menormalkan stempel waktu "Dibuat", `hash8`, dan versi program (keduanya berubah setiap rilis); perbarui acuan dengan `ASISTEN_BEI_PERBARUI_ACUAN=1 pytest tests/test_e2e.py` lalu tinjau selisihnya.
 
 ### 22.3 Uji cepat dengan data nyata (manual; setelah instalasi dan setiap upgrade dependensi)
 

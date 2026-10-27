@@ -1,0 +1,7 @@
+# BUKAN SARAN INVESTASI. Laporan ini dibuat otomatis oleh program pribadi berdasarkan aturan mekanis dan data publik yang bisa salah, terlambat, atau tidak lengkap. Hasil backtest dan paper trading tidak menjamin hasil di masa depan. Seluruh keputusan dan risiko transaksi menjadi tanggung jawab pengguna.
+tanggal_sinyal,kode,nama,sektor,strategi,skor,status_sinyal,alasan,status_pasar,harga_ref,harga_maks,stop_awal,target_harga,lot,lembar,nilai_idr,biaya_beli_idr,risiko_idr,rata_nilai_idr,bergantung_jual
+2025-09-10,UJIPB,Ujipb Tbk (FIKTIF – KHUSUS UJI),Sektor Fiktif A,PB,75.219896,REKOMENDASI,,BOLEH_BELI,1710.493379,1724,1655,1862,3,300,517200.00,517975.80,23212.31,68950676704.00,
+2025-09-10,UJIMAHAL,Ujimahal Tbk (FIKTIF – KHUSUS UJI),Sektor Fiktif D,PB,74.491402,TIDAK_TERJANGKAU,"risiko 1 lot = Rp 63.694,30 (2,12% ekuitas) > anggaran Rp 30.000 (1%, status BOLEH BELI)",BOLEH_BELI,9078.468063,9208,8615,10394,0,0,,,,72695123311.60,
+2025-09-10,UJIGAP,Ujigap Tbk (FIKTIF – KHUSUS UJI),Sektor Fiktif F,PB,68.15403,REKOMENDASI,,BOLEH_BELI,1352.760221,1363,1309,1471,4,400,545200.00,546017.80,24249.09,40897731829.50,
+2025-09-10,UJIMAHAL2,Ujimahal2 Tbk (FIKTIF – KHUSUS UJI),Sektor Fiktif E,PB,64.340636,TIDAK_TERJANGKAU,nilai 1 lot Rp 1.051.575 > alokasi maks Rp 1.000.000,BOLEH_BELI,10457.7189,10500,10290,10920,0,0,,,,52488717525.25,
+2025-09-10,UJISEKTOR,Ujisektor Tbk (FIKTIF – KHUSUS UJI),Sektor Fiktif A,PB,60.315845,BATAS_SEKTOR,sektor Sektor Fiktif A sudah mencapai 1 posisi,BOLEH_BELI,3368.690004,3396,3272,3644,,,,,,20444902751.40,
