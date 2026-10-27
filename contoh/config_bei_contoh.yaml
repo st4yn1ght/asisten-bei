@@ -24,10 +24,10 @@ pasar:
   # Sumber: jadwal perdagangan terbaru di idx.co.id. Jam dalam WIB, format 24 jam "HH:MM".
   jadwal_sesi:
     terverifikasi: false                       # → true setelah dua jam di bawah diganti dari idx.co.id
-    sumber: "Jam dan Mekanisme Perdagangan (https://www.idx.co.id/id/produk/mekanisme-dan-jam-perdagangan)"
-    tanggal_cek: "2026-10-21"                  # tanggal Anda membaca sumber itu (YYYY-MM-DD)
-    jam_penutupan: "16:00"                     # FIKTIF. Jam penutupan perdagangan hari bursa biasa
-    jam_pra_pembukaan: "08:45"                 # FIKTIF. Jam mulai sesi pra-pembukaan
+    sumber: "CONTOH FIKTIF - ganti dengan judul pengumuman + URL halaman idx.co.id yang Anda baca"
+    tanggal_cek: "2026-10-20"                  # tanggal Anda membaca sumber itu (YYYY-MM-DD)
+    jam_penutupan: "03:17"                     # FIKTIF. Jam penutupan perdagangan hari bursa biasa
+    jam_pra_pembukaan: "02:05"                 # FIKTIF. Jam mulai sesi pra-pembukaan
 
   # --- Item 7: tabel fraksi harga -------------------------------------------------------------------
   # Sumber: peraturan perdagangan terbaru di idx.co.id (satuan perubahan harga per rentang harga).
@@ -35,40 +35,36 @@ pasar:
   # Baris harus bersambung tanpa celah; baris terakhir harga_maks: null (= tanpa batas atas).
   fraksi_harga:
     terverifikasi: false                       # → true setelah tabel dan berlaku_mulai diganti
-    sumber: "Jam dan Mekanisme Perdagangan (https://www.idx.co.id/id/produk/mekanisme-dan-jam-perdagangan)"
-    tanggal_cek: "2026-10-21"
-    berlaku_mulai: "2026-10-20"                # FIKTIF. Isi tanggal mulai berlaku menurut peraturan
+    sumber: "CONTOH FIKTIF - ganti dengan nomor/judul peraturan + URL idx.co.id"
+    tanggal_cek: "2026-10-20"
+    berlaku_mulai: "2099-01-01"                # FIKTIF. Isi tanggal mulai berlaku menurut peraturan
     tabel:
-      - {harga_min: 0, harga_maks: 200, fraksi: 1}          # FIKTIF: harga 0 s.d. di bawah 123 → kelipatan 1
-      - {harga_min: 200, harga_maks: 500, fraksi: 2}       # FIKTIF: 123 s.d. di bawah 4567 → kelipatan 3
-      - {harga_min: 500, harga_maks: 2000, fraksi: 5}
-      - {harga_min: 2000, harga_maks: 5000, fraksi: 10}
-      - {harga_min: 5000, harga_maks: null, fraksi: 25}      # FIKTIF: 4567 ke atas → kelipatan 9
+      - {harga_min: 0, harga_maks: 123, fraksi: 1}          # FIKTIF: harga 0 s.d. di bawah 123 → kelipatan 1
+      - {harga_min: 123, harga_maks: 4567, fraksi: 3}       # FIKTIF: 123 s.d. di bawah 4567 → kelipatan 3
+      - {harga_min: 4567, harga_maks: null, fraksi: 9}      # FIKTIF: 4567 ke atas → kelipatan 9
 
   # --- Item 8: batas auto reject (ARA/ARB) ----------------------------------------------------------
-  # Sumber: peraturan/pengumuman auto rejection terbaru di idx.co.id. batas_pct = persen dari harga acuan.
-  # Rentang harga ditulis seperti tabel fraksi. Bila aturan memakai satu persentase untuk semua harga,
-  # cukup satu baris: {harga_min: 0, harga_maks: null, batas_pct: <angka>}.
+  # Sumber: peraturan/pengumuman auto rejection terbaru di idx.co.id. Setiap baris memakai salah satu jenis:
+  #   jenis: pct → batas = persen dari harga acuan (batas atas = acuan × (1 + batas/100), bawah = × (1 − batas/100))
+  #   jenis: abs → batas = rupiah dari harga acuan (batas atas = acuan + batas, bawah = acuan − batas)
+  # Rentang harga ditulis seperti tabel fraksi (harga_maks tidak ikut). Untuk "Rp 1 s.d. Rp 10" tulis
+  # harga_min: 1, harga_maks: 11. Bila aturan memakai satu persentase untuk semua harga, cukup satu baris:
+  # {harga_min: 0, harga_maks: null, jenis: pct, batas: <angka>}.
   auto_reject:
     terverifikasi: false                       # → true setelah semua nilai diganti
-    sumber: "Jam dan Mekanisme Perdagangan (https://www.idx.co.id/id/produk/mekanisme-dan-jam-perdagangan)"
-    tanggal_cek: "2026-10-21"
-    berlaku_mulai: "2026-10-20"                # FIKTIF
-    papan_berlaku: "Saham Papan Utama, Ekonomi Baru, dan Pengembangan"
+    sumber: "CONTOH FIKTIF - ganti dengan nomor/judul peraturan + URL idx.co.id"
+    tanggal_cek: "2026-10-20"
+    berlaku_mulai: "2099-01-01"                # FIKTIF
+    papan_berlaku: "CONTOH FIKTIF - tulis papan pencatatan yang diatur, sesuai peraturan"
     harga_acuan: "close_kemarin"               # satu-satunya nilai yang didukung program; isi hanya bila
                                                # peraturan memang memakai harga penutupan hari sebelumnya
     ara:
-      - {harga_min: 1, harga_maks: 10, batas: 1, jenis: abs}      # FIKTIF
-      - {harga_min: 11, harga_maks: 14, batas: 35, jenis: pct}   # FIKTIF
-      - {harga_min: 15, harga_maks: 200, batas: 35, jenis: pct}   # FIKTIF
-      - {harga_min: 200, harga_maks: 5000, batas: 25, jenis: pct}   # FIKTIF
-      - {harga_min: 5000, harga_maks: null, batas: 20, jenis: pct}   # FIKTIF
+      - {harga_min: 0, harga_maks: 44, jenis: abs, batas: 3}         # FIKTIF: acuan Rp 0–43 → naik maks Rp 3
+      - {harga_min: 44, harga_maks: 444, jenis: pct, batas: 77}      # FIKTIF: acuan Rp 44–443 → naik maks 77 %
+      - {harga_min: 444, harga_maks: null, jenis: pct, batas: 33}    # FIKTIF
     arb:
-      - {harga_min: 1, harga_maks: 10, batas: 1, jenis: abs}      # FIKTIF
-      - {harga_min: 11, harga_maks: 14, batas: 1, jenis: abs}   # FIKTIF
-      - {harga_min: 15, harga_maks: 200, batas: 7, jenis: pct}   # FIKTIF
-      - {harga_min: 200, harga_maks: 5000, batas: 7, jenis: pct}   # FIKTIF
-      - {harga_min: 5000, harga_maks: null, batas: 7, jenis: pct}   # FIKTIF
+      - {harga_min: 0, harga_maks: 44, jenis: abs, batas: 2}         # FIKTIF: acuan Rp 0–43 → turun maks Rp 2
+      - {harga_min: 44, harga_maks: null, jenis: pct, batas: 9}      # FIKTIF
 
 # --- Item 9: biaya broker -------------------------------------------------------------------------------
 # Sumber: trade confirmation (bukti transaksi) dari broker Anda. Contoh hitung FIKTIF:

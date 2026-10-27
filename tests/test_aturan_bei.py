@@ -32,17 +32,17 @@ TABEL_FRAKSI_FIKTIF = [
 ]
 
 # --- Tabel ARA/ARB FIKTIF – KHUSUS UJI (persen, rentang menurut harga acuan) ---------------------------
-ARA_TUNGGAL_FIKTIF = [{"harga_min": 0, "harga_maks": None, "batas_pct": 11}]
-ARB_TUNGGAL_FIKTIF = [{"harga_min": 0, "harga_maks": None, "batas_pct": 13}]
+ARA_TUNGGAL_FIKTIF = [{"harga_min": 0, "harga_maks": None, "jenis": "pct", "batas": 11}]
+ARB_TUNGGAL_FIKTIF = [{"harga_min": 0, "harga_maks": None, "jenis": "pct", "batas": 13}]
 ARA_MULTI_FIKTIF = [
-    {"harga_min": 0, "harga_maks": 120, "batas_pct": 50},
-    {"harga_min": 120, "harga_maks": 1000, "batas_pct": 22},
-    {"harga_min": 1000, "harga_maks": None, "batas_pct": 9},
+    {"harga_min": 0, "harga_maks": 120, "jenis": "pct", "batas": 50},
+    {"harga_min": 120, "harga_maks": 1000, "jenis": "pct", "batas": 22},
+    {"harga_min": 1000, "harga_maks": None, "jenis": "pct", "batas": 9},
 ]
 ARB_MULTI_FIKTIF = [
-    {"harga_min": 0, "harga_maks": 120, "batas_pct": 40},
-    {"harga_min": 120, "harga_maks": 1000, "batas_pct": 17},
-    {"harga_min": 1000, "harga_maks": None, "batas_pct": 6},
+    {"harga_min": 0, "harga_maks": 120, "jenis": "pct", "batas": 40},
+    {"harga_min": 120, "harga_maks": 1000, "jenis": "pct", "batas": 17},
+    {"harga_min": 1000, "harga_maks": None, "jenis": "pct", "batas": 6},
 ]
 
 BERLAKU = date(2025, 3, 3)  # berlaku_mulai FIKTIF (Senin)
@@ -507,7 +507,7 @@ def test_fraksi_harus_positif(fraksi):
 
 def test_validasi_dict_langsung_menolak_tabel_rusak():
     # Jalur yang sama dengan `muat_config`: dict YAML → validasi_dict → ConfigTidakValid.
-    data = baca_yaml(AKAR_PROYEK / "config.yaml")
+    data = baca_yaml(AKAR_PROYEK / "tests" / "fixtures" / "config_rilis.yaml")
     data["pasar"]["fraksi_harga"].update(
         terverifikasi=True, sumber=SUMBER_FIKTIF, berlaku_mulai=BERLAKU,
         tabel=copy.deepcopy(_TABEL_FRAKSI_RUSAK["berlubang"][0]),
@@ -545,7 +545,7 @@ def test_fraksi_terverifikasi_tanpa_berlaku_mulai_ditolak():
 @pytest.mark.parametrize("nama", ["tumpang_tindih", "berlubang", "baris_terakhir_berbatas", "null_di_tengah"])
 def test_tabel_ara_arb_rusak_ditolak(sisi, nama):
     tabel_fraksi, kata = _TABEL_FRAKSI_RUSAK[nama]
-    tabel = [{"harga_min": b["harga_min"], "harga_maks": b["harga_maks"], "batas_pct": 15} for b in tabel_fraksi]
+    tabel = [{"harga_min": b["harga_min"], "harga_maks": b["harga_maks"], "jenis": "pct", "batas": 15} for b in tabel_fraksi]
     for terverifikasi in (True, False):
         pesan = _pesan_error(_ar(terverifikasi=terverifikasi, **{sisi: tabel}))
         assert "pasar.auto_reject" in pesan
@@ -585,10 +585,39 @@ def test_harga_acuan_tidak_didukung_tidak_dimodelkan_walau_validasi_dilewati():
     assert AturanBEI(cfg).batas_arb(1003, SESUDAH) == Decimal(873)
 
 
-@pytest.mark.parametrize("pct", [0, -1, 101])
-def test_batas_pct_di_luar_rentang_ditolak(pct):
-    pesan = _pesan_error(_ar(ara=[{"harga_min": 0, "harga_maks": None, "batas_pct": pct}]))
-    assert "pasar.auto_reject.ara.0.batas_pct" in pesan
+@pytest.mark.parametrize(
+    ("jenis", "batas", "potongan"),
+    [
+        ("pct", 0, "pasar.auto_reject.ara.0.batas"),
+        ("pct", -1, "pasar.auto_reject.ara.0.batas"),
+        ("abs", 0, "pasar.auto_reject.ara.0.batas"),
+        ("pct", 101, "jenis pct: batas harus ≤ 100"),
+        ("persen", 5, "pasar.auto_reject.ara.0.jenis"),
+    ],
+)
+def test_batas_di_luar_rentang_atau_jenis_tak_dikenal_ditolak(jenis, batas, potongan):
+    pesan = _pesan_error(_ar(ara=[{"harga_min": 0, "harga_maks": None, "jenis": jenis, "batas": batas}]))
+    assert potongan in pesan
+
+
+def test_batas_abs_boleh_lebih_dari_100():
+    # FIKTIF – KHUSUS UJI: abs dalam rupiah, tidak dibatasi 100.
+    bei = _bei(_ar(ara=[{"harga_min": 0, "harga_maks": None, "jenis": "abs", "batas": 150}]))
+    assert bei.batas_ara(1000, SESUDAH) == Decimal(1150)
+
+
+@pytest.mark.parametrize("baris", [
+    {"harga_min": 0, "harga_maks": None, "batas_pct": 11},
+    {"harga_min": 0, "harga_maks": None, "batas_pct": 11, "jenis": "pct", "batas": 11},
+])
+def test_kunci_lama_batas_pct_ditolak_dengan_petunjuk(baris):
+    pesan = _pesan_error(_ar(ara=[baris]))
+    assert "batas_pct sudah diganti" in pesan and "jenis: pct" in pesan
+
+
+def test_baris_tanpa_jenis_ditolak():
+    pesan = _pesan_error(_ar(ara=[{"harga_min": 0, "harga_maks": None, "batas": 11}]))
+    assert "pasar.auto_reject.ara.0.jenis" in pesan
 
 
 # =====================================================================================================
@@ -678,7 +707,7 @@ def test_batas_pct_pecahan_dari_yaml_tanpa_derau_float():
     # FIKTIF – KHUSUS UJI: ARA/ARB 0,7 % sebagai float YAML. 1.000 × 1,007 = 1.007 dan 1.000 × 0,993 = 993
     # tepat. Bila 0,7 diubah ke Decimal biner (0,6999…96), ARA menjadi ⌊1.006,99…⌋ = 1.006 dan ARB
     # ⌈993,00…04⌉ = 994.
-    tabel = [{"harga_min": 0, "harga_maks": None, "batas_pct": 0.7}]
+    tabel = [{"harga_min": 0, "harga_maks": None, "jenis": "pct", "batas": 0.7}]
     bei = _bei(_ar(ara=tabel, arb=tabel))
     assert bei.batas_ara(1000, SESUDAH) == Decimal(1007)
     assert bei.batas_arb(1000, SESUDAH) == Decimal(993)
@@ -714,9 +743,63 @@ def test_berlaku_mulai_ara_dan_fraksi_independen():
 
 def test_arb_seratus_persen_berarti_batas_nol():
     # FIKTIF – KHUSUS UJI: ARB 100 % → acuan × 0 = 0 (tanpa batas bawah); bar positif tidak terkunci ARB.
-    bei = _bei(_ar(arb=[{"harga_min": 0, "harga_maks": None, "batas_pct": 100}]))
+    bei = _bei(_ar(arb=[{"harga_min": 0, "harga_maks": None, "jenis": "pct", "batas": 100}]))
     assert bei.batas_arb(1003, SESUDAH) == Decimal(0)
     assert bei.terkunci_arb(1, 1, 1, 1, 1003, SESUDAH) is False
+
+
+# --- jenis abs dan tabel campuran pct/abs (SPEC §7 "Batas ARA/ARB"), semua FIKTIF – KHUSUS UJI ---------
+# acuan Rp 1–10 (baris [1, 11)): ARA/ARB ±Rp 2 (abs); Rp 11–14 ([11, 15)): ARA 30 %, ARB −Rp 3 (abs);
+# Rp 15 ke atas: ARA 30 %, ARB 20 % (pct).
+ARA_CAMPUR_FIKTIF = [
+    {"harga_min": 1, "harga_maks": 11, "jenis": "abs", "batas": 2},
+    {"harga_min": 11, "harga_maks": 15, "jenis": "pct", "batas": 30},
+    {"harga_min": 15, "harga_maks": None, "jenis": "pct", "batas": 30},
+]
+ARB_CAMPUR_FIKTIF = [
+    {"harga_min": 1, "harga_maks": 11, "jenis": "abs", "batas": 2},
+    {"harga_min": 11, "harga_maks": 15, "jenis": "abs", "batas": 3},
+    {"harga_min": 15, "harga_maks": None, "jenis": "pct", "batas": 20},
+]
+BEI_AR_CAMPUR = _bei(_ar(ara=ARA_CAMPUR_FIKTIF, arb=ARB_CAMPUR_FIKTIF))
+
+
+@pytest.mark.parametrize(
+    ("acuan", "ara", "arb"),
+    [
+        (1, 3, 0),     # abs: 1 + 2; 1 − 2 = −1 ≤ 0 → 0 (tidak ada batas bawah)
+        (2, 4, 0),     # 2 − 2 = 0 → 0
+        (5, 7, 3),     # abs ±2
+        (10, 12, 8),   # 10 masih baris [1, 11)
+        (11, 14, 8),   # 11 × 1,3 = 14,3 → ⌊14⌋; 11 − 3 = 8 (abs)
+        (14, 18, 11),  # 14 × 1,3 = 18,2 → 18; 14 − 3 = 11
+        (15, 19, 12),  # 15 × 1,3 = 19,5 → 19; 15 × 0,8 = 12
+        (Decimal("0.5"), 2, 0),  # di bawah baris pertama memakai baris pertama: 0,5 + 2 = 2,5 → 2
+    ],
+)
+def test_batas_ara_arb_tabel_campuran_abs_dan_pct(acuan, ara, arb):
+    assert BEI_AR_CAMPUR.batas_ara(acuan, SESUDAH) == Decimal(ara)
+    assert BEI_AR_CAMPUR.batas_arb(acuan, SESUDAH) == Decimal(arb)
+
+
+def test_batas_abs_dibulatkan_ke_fraksi_seperti_pct():
+    # FIKTIF: abs +7 / −7 dengan fraksi fiktif (1 di bawah 120, 4 di 120–1000): acuan 118 → ARA 125 →
+    # dibulatkan ke BAWAH ke fraksi 4 = 124; ARB 111 (fraksi 1, sudah valid).
+    tabel = [{"harga_min": 0, "harga_maks": None, "jenis": "abs", "batas": 7}]
+    bei = _bei(_fraksi(), _ar(ara=tabel, arb=tabel))
+    assert bei.batas_ara(118, SESUDAH) == Decimal(124)
+    assert bei.batas_arb(118, SESUDAH) == Decimal(111)
+    assert bei.batas_arb(122, SESUDAH) == Decimal(115)  # 115 < 120 → fraksi 1
+
+
+def test_terkunci_dengan_batas_abs():
+    # acuan 5: ARA 7, ARB 3 (abs ±2). Bar datar di batas terkunci; satu rupiah di dalam batas tidak.
+    assert BEI_AR_CAMPUR.terkunci_ara(7, 7, 7, 7, 5, SESUDAH) is True
+    assert BEI_AR_CAMPUR.terkunci_ara(6, 6, 6, 6, 5, SESUDAH) is False
+    assert BEI_AR_CAMPUR.terkunci_arb(3, 3, 3, 3, 5, SESUDAH) is True
+    assert BEI_AR_CAMPUR.terkunci_arb(4, 4, 4, 4, 5, SESUDAH) is False
+    # ARB 0 (acuan 2): bar positif tidak pernah terkunci ARB.
+    assert BEI_AR_CAMPUR.terkunci_arb(1, 1, 1, 1, 2, SESUDAH) is False
 
 
 # =====================================================================================================

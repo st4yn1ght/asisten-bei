@@ -64,13 +64,13 @@ def _tanpa_jaringan(monkeypatch):
 @pytest.fixture(scope="module")
 def cfg():
     """Config rilis (hanya dibaca). Provider hanya memakai `data.akhiran_yfinance` & `data.simbol_ihsg`."""
-    return muat_config(AKAR_PROYEK / "config.yaml").cfg
+    return muat_config(AKAR_PROYEK / "tests" / "fixtures" / "config_rilis.yaml").cfg
 
 
 @pytest.fixture(scope="module")
 def cfg_lain():
     """Config dengan simbol berbeda: membuktikan provider membaca config, bukan nilai tertanam (P4)."""
-    data = baca_yaml(AKAR_PROYEK / "config.yaml")
+    data = baca_yaml(AKAR_PROYEK / "tests" / "fixtures" / "config_rilis.yaml")
     data["data"]["akhiran_yfinance"] = ".XX"
     data["data"]["simbol_ihsg"] = {"yfinance": "^TESTIDX", "csv_manual": "INDEKS"}
     return validasi_dict(data)

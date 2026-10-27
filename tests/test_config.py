@@ -35,7 +35,7 @@ from asisten_bei.config import (
 )
 
 AKAR_PROYEK = Path(__file__).resolve().parents[1]
-PATH_CONFIG_RILIS = AKAR_PROYEK / "config.yaml"
+PATH_CONFIG_RILIS = AKAR_PROYEK / "tests" / "fixtures" / "config_rilis.yaml"  # config.yaml pengguna tidak dibaca uji
 _DASAR = baca_yaml(PATH_CONFIG_RILIS)
 
 FIKTIF = "FIKTIF – KHUSUS UJI"
@@ -398,10 +398,12 @@ def test_persen_biaya_batas(jalur):
 
 
 def test_persen_tabel_auto_reject_di_luar_rentang_error():
-    # FIKTIF – KHUSUS UJI. batas_pct harus > 0 dan ≤ 100.
-    for batas in (0, -5, 100.01):
-        ar = _ar_fiktif(arb=[{"harga_min": 0, "harga_maks": None, "batas_pct": batas}])
-        assert _ada(_galat({"pasar.auto_reject": ar}), "pasar.auto_reject.arb.0.batas_pct:")
+    # FIKTIF – KHUSUS UJI. batas harus > 0; untuk jenis pct juga ≤ 100.
+    for batas in (0, -5):
+        ar = _ar_fiktif(arb=[{"harga_min": 0, "harga_maks": None, "jenis": "pct", "batas": batas}])
+        assert _ada(_galat({"pasar.auto_reject": ar}), "pasar.auto_reject.arb.0.batas:")
+    ar = _ar_fiktif(arb=[{"harga_min": 0, "harga_maks": None, "jenis": "pct", "batas": 100.01}])
+    assert _ada(_galat({"pasar.auto_reject": ar}), "pasar.auto_reject.arb.0:", "batas harus ≤ 100")
 
 
 @pytest.mark.parametrize("nilai, sah", [(0, True), (1, True), (0.5, True), (-0.01, False), (1.01, False)])
@@ -492,10 +494,10 @@ FRAKSI_FIKTIF = [
 ]
 # FIKTIF – KHUSUS UJI: BUKAN batas ARA/ARB BEI.
 ARA_FIKTIF = [
-    {"harga_min": 0, "harga_maks": 444, "batas_pct": 41},
-    {"harga_min": 444, "harga_maks": None, "batas_pct": 13},
+    {"harga_min": 0, "harga_maks": 444, "jenis": "pct", "batas": 41},
+    {"harga_min": 444, "harga_maks": None, "jenis": "pct", "batas": 13},
 ]
-ARB_FIKTIF = [{"harga_min": 0, "harga_maks": None, "batas_pct": 9}]
+ARB_FIKTIF = [{"harga_min": 0, "harga_maks": None, "jenis": "pct", "batas": 9}]
 
 
 def _fh_fiktif(tabel=None, **lain) -> dict:
@@ -527,7 +529,7 @@ def test_tabel_fiktif_bersambung_lolos():
     assert [(b.harga_min, b.harga_maks, b.fraksi) for b in fh.tabel] == [
         (D(0), D(333), D(3)), (D(333), D(7777), D(11)), (D(7777), None, D(37)),
     ]
-    assert [b.batas_pct for b in ar.ara] == [D(41), D(13)]
+    assert [(b.jenis, b.batas) for b in ar.ara] == [("pct", D(41)), ("pct", D(13))]
     assert ar.arb[0].harga_maks is None and ar.harga_acuan == "close_kemarin"
 
 

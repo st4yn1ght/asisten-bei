@@ -1,7 +1,9 @@
-"""Berkas contoh untuk SPEC §24 (folder `contoh/`) dan templat kosong di `input/`.
+"""Berkas contoh untuk SPEC §24 (folder `contoh/`).
 
 Contoh harus selalu sah menurut parser program (agar formatnya bisa ditiru apa adanya), tetapi tidak boleh
 membawa nilai yang bisa disangka data sungguhan: aturan BEI fiktif, libur bertahun 2099, kode saham fiktif.
+`input/` dan `config.yaml` di folder utama milik pengguna dan tidak dibaca uji; dasar config adalah salinan
+rilis `tests/fixtures/config_rilis.yaml`.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from asisten_bei.config import ConfigTidakValid, baca_yaml, muat_config, validas
 
 AKAR = Path(__file__).resolve().parents[1]
 CONTOH = AKAR / "contoh"
+RILIS = AKAR / "tests" / "fixtures" / "config_rilis.yaml"
 
 PEMBACA = {
     "universe.csv": (inputs.baca_universe, inputs.KOLOM_UNIVERSE),
@@ -30,13 +33,6 @@ PEMBACA = {
     "exclude.csv": (inputs.baca_exclude, inputs.KOLOM_EXCLUDE),
     "holidays.csv": (inputs.baca_libur, inputs.KOLOM_LIBUR),
     "anomali_ok.csv": (inputs.baca_anomali_ok, inputs.KOLOM_ANOMALI_OK),
-}
-TEMPLAT = {  # berkas wajib yang disediakan di input/ dengan baris judul saja
-    "universe.csv": inputs.KOLOM_UNIVERSE,
-    "breadth_universe.csv": inputs.KOLOM_BREADTH,
-    "exclude.csv": inputs.KOLOM_EXCLUDE,
-    "holidays.csv": inputs.KOLOM_LIBUR,
-    "portfolio.csv": inputs.KOLOM_PORTOFOLIO,
 }
 
 
@@ -79,27 +75,15 @@ def test_contoh_libur_tidak_bisa_disangka_kalender_sungguhan():
     assert libur and all(d.year == 2099 for d in libur)
 
 
-@pytest.mark.parametrize("nama", sorted(TEMPLAT))
-def test_templat_input_hanya_baris_judul(nama):
-    path = AKAR / "input" / nama
-    assert path.read_text(encoding="utf-8") == _header(TEMPLAT[nama]) + "\n"
-
-
-def test_input_tidak_memuat_berkas_yang_berbahaya_bila_kosong_atau_contoh():
-    # universe_history.csv kosong membuat backtest tanpa konstituen; akun.yaml contoh akan dipakai sebagai kas.
-    for nama in ("universe_history.csv", "akun.yaml", "anomali_ok.csv"):
-        assert not (AKAR / "input" / nama).exists(), nama
-
-
 def test_contoh_config_sah_bila_disalin_apa_adanya():
     contoh = baca_yaml(CONTOH / "config_bei_contoh.yaml")
-    cfg = validasi_dict(_gabung(baca_yaml(AKAR / "config.yaml"), contoh))
+    cfg = validasi_dict(_gabung(baca_yaml(RILIS), contoh))
     assert not cfg.pasar.fraksi_harga.terverifikasi and not cfg.pasar.auto_reject.terverifikasi
 
 
 @pytest.mark.parametrize("blok", ["jadwal_sesi", "fraksi_harga", "auto_reject"])
 def test_contoh_aturan_bei_ditolak_bila_ditandai_terverifikasi_tanpa_mengganti_sumber(blok):
-    data = _gabung(baca_yaml(AKAR / "config.yaml"), baca_yaml(CONTOH / "config_bei_contoh.yaml"))
+    data = _gabung(baca_yaml(RILIS), baca_yaml(CONTOH / "config_bei_contoh.yaml"))
     data["pasar"][blok]["terverifikasi"] = True
     with pytest.raises(ConfigTidakValid, match="CONTOH FIKTIF"):
         validasi_dict(data)
@@ -110,7 +94,7 @@ def test_contoh_aturan_bei_ditolak_bila_ditandai_terverifikasi_tanpa_mengganti_s
 
 
 def test_config_dengan_blok_tertempel_dua_kali_ditolak(tmp_path):
-    teks = (AKAR / "config.yaml").read_text(encoding="utf-8")
+    teks = RILIS.read_text(encoding="utf-8")
     contoh = (CONTOH / "config_bei_contoh.yaml").read_text(encoding="utf-8")
     biaya = contoh[contoh.index("\nbiaya:"):contoh.index("\n# --- Item 10")]
     (tmp_path / "config.yaml").write_text(teks + biaya, encoding="utf-8")
@@ -128,7 +112,10 @@ def test_contoh_aturan_bei_ditandai_fiktif_dan_tidak_pernah_berlaku():
     assert pasar["auto_reject"]["berlaku_mulai"] == "2099-01-01"
     teks = (CONTOH / "config_bei_contoh.yaml").read_text(encoding="utf-8")
     assert teks.startswith("# BUKAN SARAN INVESTASI")
-    assert all("FIKTIF" in b for b in teks.splitlines() if re.search(r"(fraksi|batas_pct):\s*\d", b))
+    assert all("FIKTIF" in b for b in teks.splitlines() if re.search(r"(fraksi|batas):\s*\d", b))
+    # Contoh memperlihatkan kedua jenis batas ARA/ARB.
+    jenis = {b["jenis"] for t in ("ara", "arb") for b in pasar["auto_reject"][t]}
+    assert jenis == {"pct", "abs"}
 
 
 def test_contoh_env_berisi_dua_kunci_telegram():
@@ -138,7 +125,7 @@ def test_contoh_env_berisi_dua_kunci_telegram():
 
 
 def test_cek_dengan_contoh_input_tanpa_error(tmp_path):
-    shutil.copy2(AKAR / "config.yaml", tmp_path / "config.yaml")
+    shutil.copy2(RILIS, tmp_path / "config.yaml")
     shutil.copytree(CONTOH / "input", tmp_path / "input")
     baris: list[str] = []
     hasil = jalankan_cek(muat_config(tmp_path / "config.yaml", tmp_path), silang_kode=None, keluar=baris.append)

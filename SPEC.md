@@ -216,7 +216,7 @@ Exit BO pada level trailing (termasuk trailing awal = `stop_awal`) berlabel `TRA
 asisten-bei/
 ├── README.md                    # Panduan langkah demi langkah (Windows) + glosarium + rutinitas harian
 ├── SPEC.md
-├── config.yaml                  # Semua parameter (§7)
+├── config.yaml                  # Semua parameter (§7); milik Anda setelah diisi (§24)
 ├── .env.example                 # TELEGRAM_BOT_TOKEN=...  TELEGRAM_CHAT_ID=...
 ├── .env                         # Rahasia Telegram (tidak dibagikan/di-commit)
 ├── .gitignore                   # .env, .venv/, data/, output/
@@ -327,6 +327,7 @@ asisten-bei/
 └── tests/
     ├── fixtures/
     │   ├── buat_fixture.py      # pembangkit data sintetis deterministik (§22.2)
+    │   ├── config_rilis.yaml    # salinan rilis config.yaml (nilai = blok §7); dasar semua uji
     │   ├── config_uji.yaml
     │   ├── config_uji_ujibo.yaml # sama, tetapi file_portfolio → input/portfolio_ujibo.csv
     │   ├── pasar_sintetis/      # hasil pembangkit dalam format cache §8.3
@@ -479,7 +480,7 @@ tanggal,open,high,low,close,volume
 
 ## 7. `config.yaml`
 
-Isi lengkap dengan nilai default. Semua kunci wajib ada, dan kunci yang tidak dikenal adalah error. Kunci ganda pada tingkat mana pun (mis. blok yang ditempel dua kali) adalah error; PyYAML biasa diam-diam memakai yang terakhir. Validasi tambahan: `pasar.jadwal_sesi`, `pasar.fraksi_harga`, dan `pasar.auto_reject` dengan `terverifikasi: true` tidak boleh ber-`sumber` yang masih memuat teks contoh "CONTOH FIKTIF" (dari `contoh/config_bei_contoh.yaml`); `skor.bobot` berjumlah 100 dan semuanya ≥ 0; tabel fraksi dan ARA/ARB tidak boleh tumpang tindih atau berlubang (harga di bawah `harga_min` baris pertama memakai baris pertama); persen berada di rentang wajar.
+Isi lengkap dengan nilai default. Salinan rilis ini disimpan di `tests/fixtures/config_rilis.yaml` (wajib identik nilainya dengan blok di bawah, dan dipakai semua uji). `config.yaml` di folder utama adalah config **Anda**: dirilis dengan nilai yang sama, lalu Anda isi (§24); uji tidak pernah membacanya. Semua kunci wajib ada, dan kunci yang tidak dikenal adalah error. Kunci ganda pada tingkat mana pun (mis. blok yang ditempel dua kali) adalah error; PyYAML biasa diam-diam memakai yang terakhir. Validasi tambahan: `pasar.jadwal_sesi`, `pasar.fraksi_harga`, dan `pasar.auto_reject` dengan `terverifikasi: true` tidak boleh ber-`sumber` yang masih memuat teks contoh "CONTOH FIKTIF" (dari `contoh/config_bei_contoh.yaml`); `skor.bobot` berjumlah 100 dan semuanya ≥ 0; tabel fraksi dan ARA/ARB tidak boleh tumpang tindih atau berlubang (harga di bawah `harga_min` baris pertama memakai baris pertama); persen berada di rentang wajar.
 
 ```yaml
 versi_config: 1                        # harus 1; nilai lain = error "config dari versi program lain"
@@ -552,8 +553,9 @@ pasar:
     berlaku_mulai: null                # YYYY-MM-DD; ARA/ARB hanya dimodelkan untuk tanggal ≥ ini
     papan_berlaku: ""                  # informasi saja; ditampilkan di laporan bersama sumber
     harga_acuan: null                  # isi dari peraturan, mis. "close_kemarin" jika memang demikian
-    ara: []                            # - {harga_min: <angka>, harga_maks: <angka|null>, batas_pct: <angka>}
-    arb: []                            # - {harga_min: <angka>, harga_maks: <angka|null>, batas_pct: <angka>}
+    ara: []                            # - {harga_min: <angka>, harga_maks: <angka|null>, jenis: pct|abs, batas: <angka>}
+    arb: []                            # - {harga_min: <angka>, harga_maks: <angka|null>, jenis: pct|abs, batas: <angka>}
+    # jenis pct: batas = persen dari harga acuan; jenis abs: batas = rupiah dari harga acuan (mis. ±1).
     # Jika aturan memakai satu persentase untuk semua harga: satu baris, harga_min 0, harga_maks null.
 
 data:
@@ -577,7 +579,7 @@ data:
   min_bar_tumpang_tindih_sambungan: 5
   file_anomali_ok: input/anomali_ok.csv
   validasi:
-    lonjakan_mencurigakan_pct: 40      # setelah ARA/ARB diverifikasi, pastikan di atas batas tertinggi
+    lonjakan_mencurigakan_pct: 40      # setelah ARA/ARB diverifikasi, pastikan di atas batas ARA pct tertinggi
     jendela_kelengkapan_bar: 60
     maks_bar_hilang: 2
     min_cakupan_universe_pct: 80
@@ -716,6 +718,15 @@ operasional:
   simpan_log_hari: 90
   batas_waktu_run_jam: 2
 ```
+
+**Batas ARA/ARB** (hanya bila `auto_reject` terverifikasi dan tanggal ≥ `berlaku_mulai`; baris dipilih menurut harga acuan dengan aturan rentang yang sama seperti `fraksi_harga`, harga di bawah baris pertama memakai baris pertama):
+
+| `jenis` | Batas atas ARA | Batas bawah ARB |
+|---|---|---|
+| `pct` (`0 < batas ≤ 100`) | `acuan × (1 + batas/100)` | `acuan × (1 − batas/100)` |
+| `abs` (`batas > 0`, Rupiah) | `acuan + batas` | `acuan − batas` |
+
+Batas atas dibulatkan ke harga valid di **bawah**-nya, batas bawah ke harga valid di **atas**-nya (§4.1). Batas bawah ≤ 0 menjadi 0 (tidak ada bar yang terkunci ARB). Kunci lama `batas_pct` ditolak dengan pesan agar diganti `jenis: pct` + `batas`.
 
 **Resolusi rujukan** (dilakukan `config.py` sekali per konteks; hasilnya dicetak oleh `cek`):
 

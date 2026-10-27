@@ -858,7 +858,7 @@ def isi_input_lengkap(akar: Path) -> None:
 @pytest.fixture
 def ctx_tmp(tmp_path):
     """config.yaml rilis dengan akar = tmp_path (berkas pengguna tidak disentuh)."""
-    return muat_config(AKAR_PROYEK / "config.yaml", tmp_path)
+    return muat_config(AKAR_PROYEK / "tests" / "fixtures" / "config_rilis.yaml", tmp_path)
 
 
 class TestMuatMasukan:

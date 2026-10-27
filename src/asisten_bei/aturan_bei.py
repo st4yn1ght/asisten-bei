@@ -151,23 +151,28 @@ class AturanBEI:
                 return b if acuan >= b.harga_min else tabel[0]
         return tabel[-1]
 
+    @staticmethod
+    def _selisih(baris: "BarisBatas", acuan: Decimal) -> Decimal:
+        """Jarak batas dari harga acuan (§7): `acuan × batas/100` (pct) atau `batas` rupiah (abs)."""
+        batas = Decimal(baris.batas)
+        return acuan * batas / 100 if baris.jenis == "pct" else batas
+
     def batas_ara(self, harga_acuan: Decimal | float, tanggal: date) -> Decimal | None:
-        """Harga tertinggi yang diizinkan (acuan × (1 + batas%), dibulatkan ke bawah). None bila ARA
+        """Harga tertinggi yang diizinkan (acuan + selisih baris ARA, dibulatkan ke bawah). None bila ARA
         tidak dimodelkan pada `tanggal`."""
         if not self.auto_reject_berlaku(tanggal):
             return None
         acuan = ke_desimal_harga(harga_acuan)
-        pct = Decimal(self._baris_batas(self._ar.ara, acuan).batas_pct)
-        return self.bulat_bawah(acuan * (_SATU + pct / 100), tanggal).nilai
+        atas = acuan + self._selisih(self._baris_batas(self._ar.ara, acuan), acuan)
+        return self.bulat_bawah(atas, tanggal).nilai
 
     def batas_arb(self, harga_acuan: Decimal | float, tanggal: date) -> Decimal | None:
-        """Harga terendah yang diizinkan (acuan × (1 − batas%), dibulatkan ke atas). None bila ARB
-        tidak dimodelkan pada `tanggal`."""
+        """Harga terendah yang diizinkan (acuan − selisih baris ARB, dibulatkan ke atas; ≤ 0 → 0). None
+        bila ARB tidak dimodelkan pada `tanggal`."""
         if not self.auto_reject_berlaku(tanggal):
             return None
         acuan = ke_desimal_harga(harga_acuan)
-        pct = Decimal(self._baris_batas(self._ar.arb, acuan).batas_pct)
-        bawah = acuan * (_SATU - pct / 100)
+        bawah = acuan - self._selisih(self._baris_batas(self._ar.arb, acuan), acuan)
         if bawah <= 0:
             return Decimal(0)
         return self.bulat_atas(bawah, tanggal).nilai

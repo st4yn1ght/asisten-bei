@@ -26,12 +26,12 @@ python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/b
 - **BUKAN SARAN INVESTASI** wajib ada di setiap keluaran (terminal, CSV baris pertama `# ...`, JSON kunci `catatan`, YAML komentar pertama). Konstanta di `asisten_bei/__init__.py`.
 - **P1 tidak mengarang data:** tanpa forward-fill/interpolasi/tebakan. Data rusak/hilang → saham dikeluarkan + alasan (enum §4.3).
 - **P3 tanpa look-ahead:** keputusan hari `t` hanya memakai bar ≤ `t`. Strategi/skor/kondisi pasar/eligibilitas/sizing hanya menerima `DataView(as_of=d)`. Indikator tervektor wajib kausal: jendela bergulir ke belakang, **tanpa `shift(-k)`**, tanpa normalisasi seluruh sampel. Uji `tests/test_tanpa_lookahead.py` harus lulus.
-- **P4:** semua parameter dari `config.yaml`. Jangan pernah mengisi fraksi harga, ARA/ARB, atau jam sesi BEI dari ingatan; nilai rilis tetap `terverifikasi: false` dan kosong.
+- **P4:** semua parameter dari `config.yaml`. Jangan pernah mengisi fraksi harga, ARA/ARB, atau jam sesi BEI dari ingatan. `config.yaml` di folder utama dan `input/` adalah milik pengguna (sudah berisi data yang ia isi sendiri; jangan diubah tanpa diminta). Salinan rilis (nilai = blok SPEC §7, aturan BEI kosong dan `terverifikasi: false`) ada di `tests/fixtures/config_rilis.yaml`. Baris ARA/ARB: `{harga_min, harga_maks, jenis: pct|abs, batas}`.
 - **Uang pakai `decimal.Decimal`** (sizing, fee, P&L); lot dibulatkan ke bawah. Pembulatan harga: `harga_maks` & target ke **bawah**, stop & trailing ke **atas**.
 - **Waktu** hanya dari `asisten_bei.waktu.sekarang()` (env `ASISTEN_BEI_WAKTU_SEKARANG` saat uji); zona selalu `Asia/Jakarta`. Tunggu/jeda lewat `waktu.tidur()`.
 - **Data harian:** index `DatetimeIndex` tz-naive bernama `tanggal` (= tanggal WIB); kolom `open, high, low, close, volume` (+ `sumber`, `split` di cache). Harga di cache sudah disesuaikan split; sizing memakai harga nominal (`× F(d)`).
 - **Path** di config relatif terhadap `--akar` (`KonteksApp.path()`), bukan direktori kerja.
-- **Uji** offline & deterministik: tanpa jaringan (yfinance di-mock), tidak menyentuh berkas pengguna (salin fixture ke `tmp_path`), selalu set `ASISTEN_BEI_WAKTU_SEKARANG`.
+- **Uji** offline & deterministik: tanpa jaringan (yfinance di-mock), tidak menyentuh atau membaca berkas pengguna (`config.yaml`, `input/`, `.env`; salin fixture ke `tmp_path`, dasar config = `tests/fixtures/config_rilis.yaml`), selalu set `ASISTEN_BEI_WAKTU_SEKARANG`.
   Pembantu bersama: `tests/bantu_pasar.py` (`cfg_uji` dengan kunci bertitik, `bar`/`naik`/`turun`, `pasar(...)` → `DataPasar` sintetis). Tanda kualitas data semua simbol satu run wajib dihitung sampai `akhir` run yang sama (`bangun_data_saham`; ditegakkan `DataPasar`).
 - Enum hanya nilai §4.3. Teks untuk pengguna berbahasa Indonesia; kata "trade" tidak dipakai di laporan.
 - Kode keluar §20.1, prioritas 3 > 1 > 5 > 2 > 6 > 4 > 0 (`operasional.gabung_kode_keluar`).

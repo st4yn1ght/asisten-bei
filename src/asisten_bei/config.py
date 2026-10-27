@@ -162,7 +162,22 @@ class BarisFraksi(_M):
 class BarisBatas(_M):
     harga_min: Rupiah
     harga_maks: RupiahPositif | None
-    batas_pct: Annotated[Decimal, Field(gt=0, le=100)]
+    jenis: Literal["pct", "abs"]  # pct = persen dari harga acuan; abs = rupiah dari harga acuan (§7)
+    batas: Annotated[Decimal, Field(gt=0)]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _format_lama(cls, data):
+        if isinstance(data, dict) and "batas_pct" in data:
+            raise ValueError("kunci batas_pct sudah diganti: tulis 'jenis: pct' dan 'batas: <angka>' "
+                             "(atau 'jenis: abs' untuk batas dalam rupiah)")
+        return data
+
+    @model_validator(mode="after")
+    def _cek(self):
+        if self.jenis == "pct" and self.batas > 100:
+            raise ValueError(f"jenis pct: batas harus ≤ 100 (nilai: {self.batas})")
+        return self
 
 
 def _cek_tabel_rentang(baris: list, nama: str) -> None:

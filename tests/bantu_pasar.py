@@ -18,7 +18,7 @@ from asisten_bei.data.tampilan import DataPasar, DataSaham, bangun_data_saham
 from asisten_bei.kalender import Kalender
 
 AKAR_PROYEK = Path(__file__).resolve().parents[1]
-_DASAR = baca_yaml(AKAR_PROYEK / "config.yaml")
+_DASAR = baca_yaml(AKAR_PROYEK / "tests" / "fixtures" / "config_rilis.yaml")  # salinan rilis, bukan config pengguna
 
 KAL = Kalender({})  # Senin–Jumat (tanpa libur) untuk semua tahun
 HARI = KAL.indeks_hari_bursa(date(2024, 1, 1), date(2026, 12, 31))

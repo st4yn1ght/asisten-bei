@@ -128,8 +128,9 @@ def _peringatan_config(ctx: KonteksApp) -> list[str]:
     cfg = ctx.cfg
     hasil = []
     ar = cfg.pasar.auto_reject
-    if ar.terverifikasi and ar.ara:
-        tertinggi = max(Decimal(b.batas_pct) for b in ar.ara)
+    pct = [Decimal(b.batas) for b in ar.ara if b.jenis == "pct"]  # baris abs: lihat SPEC §7 data.validasi
+    if ar.terverifikasi and pct:
+        tertinggi = max(pct)
         lonjakan = Decimal(cfg.data.validasi.lonjakan_mencurigakan_pct)
         if lonjakan <= tertinggi:
             hasil.append(

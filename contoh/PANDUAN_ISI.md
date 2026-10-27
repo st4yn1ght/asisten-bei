@@ -12,11 +12,11 @@ asisten-bei\                      ← folder utama proyek
 ├── config.yaml                   ← item 6–11 dan 14 (sudah ada; ubah nilainya)
 ├── .env                          ← item 13 (Anda buat sendiri; contoh: contoh\env.contoh)
 ├── input\                        ← item 1–5 dan 12
-│   ├── universe.csv              ← sudah ada, baru berisi baris judul
-│   ├── breadth_universe.csv      ← sudah ada, baru berisi baris judul
-│   ├── exclude.csv               ← sudah ada, baru berisi baris judul
-│   ├── holidays.csv              ← sudah ada, baru berisi baris judul
-│   ├── portfolio.csv             ← sudah ada, baru berisi baris judul
+│   ├── universe.csv              ← dirilis berisi baris judul saja; isi datanya
+│   ├── breadth_universe.csv      ← dirilis berisi baris judul saja; isi datanya
+│   ├── exclude.csv               ← dirilis berisi baris judul saja; isi datanya
+│   ├── holidays.csv              ← dirilis berisi baris judul saja; isi datanya
+│   ├── portfolio.csv             ← dirilis berisi baris judul saja; isi datanya
 │   ├── akun.yaml                 ← Anda buat sendiri (contoh: contoh\input\akun.yaml)
 │   ├── universe_history.csv      ← opsional; buat hanya bila Anda punya datanya
 │   └── anomali_ok.csv            ← opsional; lihat bagian terakhir
@@ -170,7 +170,7 @@ persentase ARA/ARB di contoh itu **fiktif** dan sengaja dibuat aneh.
 |---|---|---|---|
 | 6 | `pasar` → `jadwal_sesi` | `jam_penutupan`, `jam_pra_pembukaan` (`"HH:MM"` WIB), `sumber`, `tanggal_cek` | Jadwal perdagangan terbaru di idx.co.id |
 | 7 | `pasar` → `fraksi_harga` | `tabel` (rentang harga → fraksi), `berlaku_mulai`, `sumber`, `tanggal_cek` | Peraturan perdagangan terbaru di idx.co.id |
-| 8 | `pasar` → `auto_reject` | `ara`, `arb` (rentang harga → persen), `harga_acuan`, `berlaku_mulai`, `papan_berlaku`, `sumber`, `tanggal_cek` | Peraturan/pengumuman auto rejection terbaru di idx.co.id |
+| 8 | `pasar` → `auto_reject` | `ara`, `arb` (rentang harga → `jenis` `pct`/`abs` dan `batas`), `harga_acuan`, `berlaku_mulai`, `papan_berlaku`, `sumber`, `tanggal_cek` | Peraturan/pengumuman auto rejection terbaru di idx.co.id |
 
 Langkah:
 
@@ -181,10 +181,15 @@ Langkah:
    (spasi, bukan tab) dan tanda kutip pada jam dan tanggal. Tulis angka **tanpa titik ribuan** (`5000`, bukan
    `5.000`): di `config.yaml`, `5.000` dibaca sebagai 5 tanpa pesan error.
 4. Tabel rentang harga: `harga_min` ikut rentang itu, `harga_maks` tidak (sama dengan `harga_min` baris
-   berikutnya). Baris harus bersambung tanpa celah, dan baris terakhir `harga_maks: null`.
-5. Ubah `terverifikasi: true` **hanya** setelah semua nilai di blok itu diganti dan dicocokkan. `cek` menolak
+   berikutnya). Baris harus bersambung tanpa celah, dan baris terakhir `harga_maks: null`. Untuk aturan yang
+   ditulis "Rp 1 s.d. Rp 10" dan "Rp 11 s.d. Rp 14", tulis `harga_min: 1, harga_maks: 11` lalu
+   `harga_min: 11, harga_maks: 15`.
+5. Setiap baris `ara`/`arb` memilih satu `jenis`:
+   - `jenis: pct` — `batas` dalam persen dari harga acuan (mis. `batas: 25` = naik/turun maks 25 %);
+   - `jenis: abs` — `batas` dalam rupiah dari harga acuan (mis. `batas: 1` = naik/turun maks Rp 1).
+6. Ubah `terverifikasi: true` **hanya** setelah semua nilai di blok itu diganti dan dicocokkan. `cek` menolak
    blok bertanda `terverifikasi: true` yang `sumber`-nya masih berisi teks contoh `CONTOH FIKTIF`.
-6. Jalankan `cek`.
+7. Jalankan `cek`.
 
 Item ini **boleh dibiarkan kosong** (`terverifikasi: false`). Program tetap berjalan dengan perilaku aman
 (harga hanya dibulatkan ke rupiah bulat, ARA/ARB tidak dimodelkan), dan setiap laporan mengingatkan Anda.

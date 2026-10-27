@@ -36,7 +36,7 @@ from asisten_bei.kalender import Kalender
 from asisten_bei.waktu import ZONA
 
 AKAR_PROYEK = Path(__file__).resolve().parents[1]
-_CONFIG_RILIS = yaml.safe_load((AKAR_PROYEK / "config.yaml").read_text(encoding="utf-8"))
+_CONFIG_RILIS = yaml.safe_load((AKAR_PROYEK / "tests" / "fixtures" / "config_rilis.yaml").read_text(encoding="utf-8"))
 
 FIKTIF = "FIKTIF – KHUSUS UJI"
 JADWAL_FIKTIF = {  # bukan jadwal BEI: 16:00 + jeda 60 menit → batas bar final 17:00
