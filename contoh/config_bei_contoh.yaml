@@ -58,10 +58,17 @@ pasar:
     harga_acuan: "close_kemarin"               # satu-satunya nilai yang didukung program; isi hanya bila
                                                # peraturan memang memakai harga penutupan hari sebelumnya
     ara:
-      - {harga_min: 0, harga_maks: 444, batas_pct: 77}      # FIKTIF
-      - {harga_min: 444, harga_maks: null, batas_pct: 33}   # FIKTIF
+      - {harga_min: 1, harga_maks: 10, batas: 1, jenis: abs}      # FIKTIF
+      - {harga_min: 11, harga_maks: 14, batas: 35, jenis: pct}   # FIKTIF
+      - {harga_min: 15, harga_maks: 200, batas: 35, jenis: pct}   # FIKTIF
+      - {harga_min: 200, harga_maks: 5000, batas: 25, jenis: pct}   # FIKTIF
+      - {harga_min: 5000, harga_maks: null, batas: 20, jenis: pct}   # FIKTIF
     arb:
-      - {harga_min: 0, harga_maks: null, batas_pct: 9}      # FIKTIF (contoh satu persentase untuk semua harga)
+      - {harga_min: 1, harga_maks: 10, batas: 1, jenis: abs}      # FIKTIF
+      - {harga_min: 11, harga_maks: 14, batas: 1, jenis: abs}   # FIKTIF
+      - {harga_min: 15, harga_maks: 200, batas: 7, jenis: pct}   # FIKTIF
+      - {harga_min: 200, harga_maks: 5000, batas: 7, jenis: pct}   # FIKTIF
+      - {harga_min: 5000, harga_maks: null, batas: 7, jenis: pct}   # FIKTIF
 
 # --- Item 9: biaya broker -------------------------------------------------------------------------------
 # Sumber: trade confirmation (bukti transaksi) dari broker Anda. Contoh hitung FIKTIF:
