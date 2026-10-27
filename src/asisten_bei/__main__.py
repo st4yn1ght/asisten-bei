@@ -17,8 +17,6 @@ from collections.abc import Callable, Sequence
 from . import DISCLAIMER, DISCLAIMER_SINGKAT, __version__, operasional
 
 PERINTAH_BELUM_TERSEDIA = {
-    "harian": "tahap 6",
-    "jurnal": "tahap 6",
     "uji-telegram": "tahap 7",
 }
 
@@ -61,12 +59,18 @@ def buat_parser() -> argparse.ArgumentParser:
                     help="hanya run strategi ini (default: semua, ditambah run gabungan_aktif dan gabungan_lolos)")
     bt.add_argument("--mode", metavar="edge,realistis", help="hanya mode ini (default: semua)")
     h = tambah("harian", "run harian (§18)")
-    for opsi in ("--jadwal", "--offline", "--tanpa-notifikasi", "--catat", "--catat-ulang"):
-        h.add_argument(opsi, action="store_true")
-    h.add_argument("--tanggal")
+    h.add_argument("--jadwal", action="store_true",
+                   help="mode terjadwal: tunggu batas bar final dan data hari ini; keluar 0 bila t sudah LENGKAP")
+    h.add_argument("--offline", action="store_true", help="hanya membaca cache (tanpa unduh)")
+    h.add_argument("--tanggal", metavar="YYYY-MM-DD", help="replay untuk hari bursa ini (tidak mencatat ke jurnal)")
+    h.add_argument("--tanpa-notifikasi", action="store_true", help="jangan kirim Telegram")
+    h.add_argument("--catat", action="store_true", help="replay --tanggal tetap mencatat ke jurnal")
+    h.add_argument("--catat-ulang", action="store_true",
+                   help="hapus sinyal tanggal yang diproses di jurnal lalu bangkitkan ulang (dicatat di run.catatan)")
     j = tambah("jurnal", "jurnal kertas (§17)")
-    j.add_argument("--ekspor", action="store_true")
-    j.add_argument("--rekonsiliasi", action="store_true")
+    j.add_argument("--ekspor", action="store_true", help="ekspor setiap tabel ke output/jurnal/<tabel>.csv")
+    j.add_argument("--rekonsiliasi", action="store_true",
+                   help="bandingkan sinyal yang ditampilkan live dengan sinyal dari data terkini")
     tg = tambah("uji-telegram", "uji notifikasi Telegram (§18.3)")
     tg.add_argument("--cari-chat-id", action="store_true")
     return p
@@ -104,6 +108,26 @@ def _jalankan(args: argparse.Namespace, keluar: Callable[[str], None]) -> int:
             except ValueError as e:
                 raise KesalahanArgumen(f"--mode: {e}") from None
             return jalankan_backtest(ctx, strategi=strategi, mode=mode, keluar=keluar).kode_keluar
+        if args.perintah == "harian":
+            from datetime import date
+
+            from .harian import OpsiHarian, jalankan_harian
+
+            tanggal = None
+            if args.tanggal is not None:
+                try:
+                    tanggal = date.fromisoformat(args.tanggal.strip())
+                except ValueError:
+                    raise KesalahanArgumen(f"--tanggal: {args.tanggal!r} bukan tanggal YYYY-MM-DD") from None
+            if args.catat and tanggal is None:
+                keluar("Catatan: --catat hanya berpengaruh bersama --tanggal; run biasa selalu mencatat ke jurnal.")
+            opsi = OpsiHarian(jadwal=args.jadwal, offline=args.offline, tanggal=tanggal,
+                              tanpa_notifikasi=args.tanpa_notifikasi, catat=args.catat, catat_ulang=args.catat_ulang)
+            return jalankan_harian(ctx, opsi, keluar=keluar).kode_keluar
+        if args.perintah == "jurnal":
+            from .harian import jalankan_jurnal
+
+            return jalankan_jurnal(ctx, ekspor=args.ekspor, rekonsiliasi=args.rekonsiliasi, keluar=keluar).kode_keluar
         tahap = PERINTAH_BELUM_TERSEDIA[args.perintah]
         keluar(f"Perintah {args.perintah} belum tersedia pada versi ini (dikerjakan pada {tahap}, SPEC §23).")
         keluar("")

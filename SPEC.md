@@ -316,12 +316,15 @@ asisten-bei/
 │   │   └── jalankan.py          # perintah backtest: muat data, run, gerbang, tulis keluaran
 │   ├── jurnal.py                # termasuk --rekonsiliasi
 │   ├── laporan/
+│   │   ├── __init__.py          # bangun_laporan (isi §18.1) + tulis_laporan (folder run & salinan terbaru)
+│   │   ├── model.py             # LaporanHarian, rencana §14.3, ringkasan aksi
+│   │   ├── dokumen.py           # struktur bagian §18.1 bersama untuk Markdown dan HTML
 │   │   ├── terminal.py          # rich
 │   │   ├── markdown.py
 │   │   ├── html.py              # jinja2 + grafik PNG base64 (satu berkas mandiri)
 │   │   ├── tabel.py             # CSV + XLSX
-│   │   ├── grafik.py            # matplotlib / mplfinance
-│   │   └── templates/
+│   │   ├── grafik.py            # matplotlib (candlestick digambar langsung)
+│   │   └── templates/           # laporan.html.j2
 │   ├── notifikasi/telegram.py
 │   └── operasional.py           # kunci proses (filelock), tulis atomik, penyaring rahasia
 │
@@ -339,7 +342,8 @@ asisten-bei/
     ├── test_kondisi_pasar.py   test_universe.py   test_strategi.py   test_skor_seleksi.py
     ├── test_sizing.py   test_biaya.py   test_exit.py   test_portofolio.py
     ├── test_mesin_backtest.py   test_metrik.py   test_gerbang.py   test_jurnal.py
-    ├── test_laporan.py   test_telegram.py   test_operasional.py   test_inputs.py
+    ├── test_laporan.py   test_harian.py   test_telegram.py   test_operasional.py   test_inputs.py
+    ├── bantu_pasar.py   bantu_harian.py   # pembantu bersama (DataPasar sintetis; proyek harian + backtest)
     └── test_e2e.py
 ```
 
@@ -913,7 +917,9 @@ class HasilAmbil:
 
 **Menentukan `t`:** hari ini jika hari ini hari bursa dan waktu WIB ≥ batas bar final; selain itu, hari bursa sebelumnya.
 
-**Cakupan universe:** dari saham universe yang punya bar valid pada hari bursa sebelum `t` (penyebut), berapa yang juga punya bar valid `t` (pembilang; selalu subset penyebut).
+**Cakupan universe:** dari saham universe yang punya bar valid pada hari bursa sebelum `t` (kalender manual; penyebut), berapa yang juga punya bar valid `t` (pembilang; selalu subset penyebut). Jika penyebut 0, cakupan = 100% bila ada saham universe dengan bar valid `t` atau universe kosong, selain itu 0%.
+
+**Bar yang diharapkan** (`LENGKAP`): saham universe dan `portfolio.csv` yang punya bar valid pada hari bursa sebelum `t`, ditambah IHSG. Saham yang diharapkan tetapi tanpa bar `t` dilaporkan "data basi" (`DATA_BASI`).
 
 **Mulai terlalu awal (mode `--jadwal`):** jika hari ini hari bursa tetapi waktu WIB masih sebelum batas bar final (mis. karena zona waktu Windows bukan WIB), program **menunggu** sampai batas itu, maksimal `operasional.batas_waktu_run_jam`, lalu menentukan `t`. Program tidak keluar dengan "tidak ada data baru".
 
@@ -923,10 +929,10 @@ class HasilAmbil:
 
 | Kondisi setelah percobaan | `status_data_run` | Akibat | Kode keluar |
 |---|---|---|---|
-| Cakupan universe < ambang | `BELUM_TERSEDIA` | Banner DATA BELUM TERSEDIA. Nol rekomendasi, tidak ada sinyal dicatat. Saran exit untuk posisi yang punya bar `t` valid. Jika IHSG dan hampir semua saham tidak punya bar `t` padahal `t−1` lengkap, laporan menambahkan "mungkin hari libur yang belum ada di holidays.csv". | 2 |
+| Cakupan universe < ambang | `BELUM_TERSEDIA` | Banner DATA BELUM TERSEDIA. Nol rekomendasi, tidak ada sinyal dicatat. Saran exit untuk posisi yang punya bar `t` valid. Jika IHSG juga tidak punya bar `t` padahal punya bar `t−1`, laporan menambahkan "mungkin hari libur yang belum ada di holidays.csv". | 2 |
 | Cakupan cukup, tetapi bar IHSG `t` tidak ada atau K0 karena data | `TIDAK_LENGKAP` | Status pasar JANGAN BELI (K0). Saran exit dan daftar pantau tetap dibuat. Sinyal dicatat sementara (§17.3). | 2 |
 | Cakupan cukup, IHSG ada, tetapi sebagian saham tanpa bar `t` | `TIDAK_LENGKAP` | Proses normal. Saham tanpa bar `t` dikeluarkan dan dilaporkan sebagai "data basi". | 0 |
-| Semua bar yang diharapkan ada | `LENGKAP` | Normal | 0 |
+| Semua bar yang diharapkan ada, dan status pasar bukan K0 | `LENGKAP` | Normal | 0 |
 
 ### 8.7 Kalender bursa
 
@@ -1323,10 +1329,11 @@ Asumsi:
   - `harga_adj = harga / F(harga_per_tanggal)`
   - `lembar_adj = lembar × F(harga_per_tanggal)`
   
-  `F` dihitung dari data split terkini.
+  `F` dihitung dari data split terkini. Tepatnya, nilai dibawa ke skala cache pada `tanggal_beli`: `harga_adj = harga × Π r ÷ F(tanggal_beli)` dan `lembar_adj = lembar × F(tanggal_beli) ÷ Π r`, dengan `Π r` hasil kali rasio **semua** split tercatat dalam (`tanggal_beli`, `harga_per_tanggal`]. Untuk split yang sudah disesuaikan sumber, ini sama dengan rumus di atas; split yang belum disesuaikan sumber (tidak ikut `F`, §8.4) lalu dikonversi oleh mesin exit pada tanggal split, sama seperti posisi backtest.
+- Nilai pada `t` (lembar, harga beli, close, stop, target) ditampilkan dalam harga nominal pada `t`. Nilai posisi = lembar pada `t` × close valid terakhir ≤ `t` (dibawa ke skala `t`); tanpa close valid sama sekali, harga beli dipakai dan ekuitas ditandai "≈".
 - Jika ada split antara `harga_per_tanggal` dan `t`, laporan menampilkan banner **SPLIT TERDETEKSI** berisi padanan pasca-split (lembar, harga beli, stop, target) untuk dicocokkan dengan aplikasi broker, dan meminta Anda memeriksa ulang order otomatis.
 - Anda boleh memperbarui baris itu ke nilai pasca-split dengan `harga_per_tanggal` = tanggal pembaruan, atau membiarkannya. Keduanya benar, dan program tidak pernah menyesuaikan dua kali.
-- Jika data split tidak tersedia untuk sumber yang dipakai sementara terdeteksi lonjakan > `lonjakan_mencurigakan_pct` sejak `tanggal_beli`, posisi berstatus **TIDAK DAPAT DIEVALUASI** dan tidak ada rekomendasi beli baru (P5).
+- Jika data split tidak tersedia untuk sumber yang dipakai sementara terdeteksi lonjakan > `lonjakan_mencurigakan_pct` sejak `tanggal_beli`, posisi berstatus **TIDAK DAPAT DIEVALUASI** dan tidak ada rekomendasi beli baru (P5). "Data split tidak tersedia" = bar berasal dari CSV manual tanpa berkas `<KODE>_split.csv` (§6.9); lonjakan dinilai pada bar valid sesudah `tanggal_beli` dari sumber itu, kecuali tanggal yang tercatat di `anomali_ok.csv`. Lonjakan pada sumber yang punya data split hanya diberi peringatan (§8.5).
 
 ### 15.4 Saran harian untuk setiap baris `portfolio.csv`
 
@@ -1337,10 +1344,12 @@ State posisi (trailing, hari ke-N, target, exit yang seharusnya terjadi) dihitun
 | 1 | Data `t` tidak ada/rusak, atau §15.3 tidak bisa dievaluasi | **TIDAK DAPAT DIEVALUASI**, beserta alasannya; level stop terakhir yang valid ditampilkan |
 | 2 | `strategi = MANUAL` | Info saja: jarak ke `stop_awal` dan P&L belum terealisasi. Tanpa aturan exit sistem. |
 | 3 | `stop_awal ≥ harga_beli` (terisi saat harga gap di bawah stop) | **JUAL di pembukaan `t+1`** — "posisi sudah berada di bawah stop sejak dibeli" |
-| 4 | Pemutaran ulang menunjukkan exit pada tanggal < `t` (alasan apa pun), **atau** jual terjadwal di pembukaan `t` (`KELUAR_SMA`, `STOP_WAKTU`, `PAKSA_JUAL_PASAR` dari close sebelumnya) | **JUAL di pembukaan `t+1`** — "menurut aturan, posisi seharusnya keluar pada <tanggal> (<alasan>). Jika sudah dijual, perbarui portfolio.csv dan akun.yaml." |
+| 4 | Pemutaran ulang menunjukkan exit pada tanggal < `t` (alasan apa pun), **atau** jual terjadwal di pembukaan `t` (`KELUAR_SMA`, `STOP_WAKTU`, `PAKSA_JUAL_PASAR` dari close sebelumnya, termasuk jual yang tertunda karena ARB dengan label aslinya) | **JUAL di pembukaan `t+1`** — "menurut aturan, posisi seharusnya keluar pada <tanggal> (<alasan>). Jika sudah dijual, perbarui portfolio.csv dan akun.yaml." |
 | 5 | Pemutaran ulang menunjukkan exit oleh order otomatis pada `t` (`STOP`, `STOP_GAP`, `TRAILING`, `TRAILING_GAP`, `TARGET`, `TARGET_GAP`, `STOP_GAP_HARI_ENTRY`). Pemutaran ulang menghormati `stop_aktif_hari_entry`. | **CEK_ORDER:** "order otomatis seharusnya terisi hari ini di <level>." Jika masih dipegang → JUAL di pembukaan `t+1`. |
 | 6 | Pemutaran ulang: aturan berbasis close pada `t` menjadwalkan jual di `t+1` | **JUAL di pembukaan `t+1`**, dengan alasannya (mis. "MR: close 1.245 > SMA5 1.238") |
 | 7 | Selain itu | **TAHAN**. Tampilkan level stop untuk besok (dan perubahannya dari kemarin), target, hari ke-N dari stop waktu, serta P&L belum terealisasi (Rp, %, R). |
+
+P&L belum terealisasi = nilai pada close valid terakhir − biaya beli (termasuk fee beli, **sebelum** fee jual); % terhadap biaya beli; R terhadap risiko rencana §4.1 (harga_beli menggantikan harga_maks). Pemutaran ulang hanya untuk PB/BO/MR dengan risiko rencana > 0 (selain itu #3 berlaku). Target PB = harga_beli + `target_r` × (harga_beli − stop_awal), dibulatkan ke bawah pada `tanggal_beli`.
 
 Untuk slot (§13.2 langkah 8), saran JUAL (#3, #4, #6) dihitung sebagai "dijadwalkan jual". Saran CEK_ORDER (#5) tetap dihitung terisi. Hasil jual tidak masuk `kas_tersedia` sampai Anda memperbarui berkas.
 
@@ -1599,12 +1608,14 @@ SQLite `data/jurnal.sqlite`. Setiap run harian mengekspor setiap tabel ke `outpu
 
 | Tabel | Kolom utama |
 |---|---|
-| `run` | `run_id, waktu_run, tanggal_data, untuk_tanggal, status_data_run, status_pasar, alasan_pasar, hash_aturan, hash_input, versi_program, gerbang_snapshot (JSON per strategi: lolos, hash, tanggal_data_terakhir), snapshot_input (JSON: kode + sektor universe, baris exclude yang aktif), peringatan_data, terlambat, catatan` |
+| `run` | `run_id, waktu_run, tanggal_data, untuk_tanggal, status_data_run, status_pasar, alasan_pasar, hash_aturan, hash_input, versi_program, gerbang_snapshot (JSON per strategi: lolos, hash, tanggal_data_terakhir, alasan), snapshot_input (JSON: kode + sektor universe, baris exclude yang aktif pada salah satu hari yang diproses run itu, beserta rentang tanggalnya), peringatan_data, terlambat, catatan, hari_diproses (JSON: tanggal, final, susulan per hari yang diproses)` |
 | `sinyal` | `sinyal_id, run_id, tanggal_sinyal, kode, strategi, skor, status_pasar (pada tanggal_sinyal), status_live, alasan_live, lot_live, risiko_live_idr, ditampilkan (0/1), harga_ref, harga_maks, stop_awal, target_harga, rincian_aturan (JSON), bar_saat_sinyal (JSON OHLCV nominal), hash_aturan, susulan (0/1), sementara (0/1), data_direvisi (0/1), tidak_muncul_di_data_final (0/1)`. Kunci unik `(tanggal_sinyal, kode, strategi)`. |
 | `hasil_sinyal` | `sinyal_id, status_isi, tanggal_entry, harga_entry, alasan_exit, tanggal_exit, harga_exit, r_bersih, hari, tanda_transaksi` |
 | `kertas_periode` | `periode_id, mulai, hash_aturan, modal_awal, selesai` |
-| `kertas_transaksi` | `periode_id`, kolom transaksi seperti `transaksi_*.csv` (termasuk kolom `*_nominal`) |
-| `kertas_ekuitas` | `periode_id, tanggal, kas, nilai_posisi, ekuitas` |
+| `kertas_transaksi` | `periode_id`, kolom transaksi seperti `transaksi_*.csv` (termasuk kolom `*_nominal`), `status_isi` (`TERISI`, atau `MENUNGGU` untuk order yang bar hari berikutnya belum ada) |
+| `kertas_ekuitas` | `periode_id, tanggal, kas, nilai_posisi, ekuitas, perkiraan (0/1, ≈), gerbang_dari_pemroses (0/1, tanda §17.2)` |
+
+**Format kolom:** harga sebagai teks desimal sampai 6 desimal, Rupiah 2 desimal (ROUND_HALF_UP), R 4 desimal — sama dengan berkas backtest — sehingga tidak ada derau float. `run_id`, `sinyal_id`, dan `periode_id` tidak pernah dipakai ulang (juga setelah `--catat-ulang`). `target_harga` = target untuk harga isi = `harga_maks` (PB); kosong untuk BO/MR. `bar_saat_sinyal` = OHLC × F(d) dan volume ÷ F(d) (volume sebelum `pengali_volume`) menurut data saat dicatat, plus `sumber`. Satu run menulis semua barisnya dalam satu transaksi SQLite: gagal di tengah tidak meninggalkan sebagian baris.
 
 ### 17.2 Tiga keluaran
 
@@ -1616,46 +1627,49 @@ SQLite `data/jurnal.sqlite`. Setiap run harian mengekspor setiap tabel ke `outpu
 3. **`kertas_*` — portofolio kertas.**
    - Mesin backtest `realistis` gabungan, dijalankan dari awal periode kertas sampai `t`, dengan modal mode `realistis`.
    - Eligibilitas per tanggal `d` memakai `snapshot_input` milik run untuk `d`, sama seperti `universe_history.csv` di backtest; `exclude.csv` diterapkan. Perubahan `universe.csv` atau `exclude.csv` di kemudian hari tidak mengubah transaksi kertas masa lalu.
-   - Strategi yang diikutkan pada `d` = yang lolos menurut **gerbang yang berlaku pada `d`**: `gerbang_snapshot` dari run terakhir yang terjadi sebelum tanggal `d+1` 00:00 WIB. Jika tidak ada (mis. run pertama), dipakai snapshot run yang memproses `d`, dan diberi tanda.
+   - Strategi yang diikutkan pada `d` = yang lolos menurut **gerbang yang berlaku pada `d`**: `gerbang_snapshot` dari run terakhir yang terjadi sebelum tanggal `d+1` 00:00 WIB. Jika tidak ada (mis. run pertama), dipakai snapshot run yang memproses `d`, dan diberi tanda (`kertas_ekuitas.gerbang_dari_pemroses`, dan disebut di laporan).
+   - Snapshot eligibilitas untuk `d` = milik run terakhir yang memproses `d`; hari yang tidak pernah diproses memakai run terdekat sebelumnya yang memproses hari ≤ `d`. Strategi yang ikut = strategi `aktif` di config saat ini ∩ lolos.
    - Ini **bukan** portofolio nyata Anda.
 
 **Periode kertas:**
 
 - Periode pertama dimulai pada `jurnal.tanggal_mulai_kertas` (null = tanggal run harian pertama).
-- Jika `hash_aturan` global berubah, periode berjalan ditutup dan dibekukan, lalu periode baru dimulai dari tanggal itu dengan modal awal.
+- Jika `hash_aturan` global berubah, periode berjalan ditutup dan dibekukan (`selesai` = `t` run yang mendeteksi perubahan; transaksi dan ekuitasnya tidak dihitung ulang lagi), lalu periode baru dimulai dari `t` itu dengan modal awal.
 - Statistik selalu dilaporkan per periode, sehingga hasil dari aturan yang berbeda tidak tercampur.
 
 ### 17.3 Aturan pembaruan
 
-1. **Hari yang diproses.** Setiap run memproses setiap hari bursa `d` dalam (tanggal terakhir yang final, `t`].
-   - Untuk `d < t` yang belum pernah diproses (PC mati): sinyal dibangkitkan dengan `DataView(as_of=d)`. Status seleksi (`status_live`) tetap dihitung, tetapi baris dicatat dengan `susulan = 1` dan `ditampilkan = 0`. Sinyal ini tidak pernah ditampilkan sebagai rekomendasi.
+1. **Hari yang diproses.** Setiap run memproses setiap hari bursa `d` dalam (tanggal terakhir yang final, `t`]. Tepatnya: hari bursa (kalender manual) dalam [awal, `t`] yang belum final, dengan awal = hari pertama yang pernah diproses atau `jurnal.tanggal_mulai_kertas` (mana yang lebih awal), atau `t` pada run pertama. Hari yang sudah final tidak diproses lagi.
+   - Untuk `d < t` yang belum pernah diproses (PC mati): sinyal dibangkitkan dengan `DataView(as_of=d)`. Status seleksi (`status_live`) tetap dihitung, tetapi baris dicatat dengan `susulan = 1` dan `ditampilkan = 0`. Sinyal ini tidak pernah ditampilkan sebagai rekomendasi. `status_live` hari susulan memakai status pasar `d` dan keadaan `portfolio.csv`/`akun.yaml` saat run (§17.2 #1), dengan gerbang run ini.
    - Laporan menulis "N hari dikejar; M sinyal susulan tidak pernah dilaporkan".
-2. **Final atau sementara.** Himpunan sinyal tanggal `d` menjadi **final** jika diproses oleh run berstatus `LENGKAP`, atau setelah `maks_hari_tunggu_data` hari bursa berlalu. Sebelum itu barisnya bertanda `sementara = 1`.
-   - Saat dibangkitkan ulang dengan data lebih lengkap, sinyal baru ditambahkan dengan `ditampilkan = 0`.
-   - Sinyal yang sudah tercatat dipertahankan. Sinyal yang tidak muncul lagi diberi tanda `tidak_muncul_di_data_final`.
-3. **Status `BELUM_TERSEDIA`** tidak menulis sinyal.
-4. **Idempoten.** Run ulang untuk `t` yang sudah final tidak menambah baris, dan laporan menulis "sudah tercatat". Laporan run ulang disimpan di `output/laporan/<t>/run_<HHMMSS>/` tanpa menimpa versi sebelumnya; salinan terbaru ada di `output/laporan/<t>/`.
-5. **Hitung ulang turunan.** `hasil_sinyal` dan `kertas_*` periode berjalan **dihitung ulang dari awal setiap run** dari data terkini (deterministik). Revisi data otomatis tercermin. Laporan menyebut "K transaksi kertas berubah karena revisi data" jika ada. Order kertas yang bar `d+1`-nya belum tersedia berstatus `MENUNGGU`.
-6. **Revisi bar.** Jika `bar_saat_sinyal`, setelah dikonversi ke ruang tersesuaikan, berbeda dari data terkini melewati toleransi, baris diberi tanda `data_direvisi = 1`.
+2. **Final atau sementara.** Himpunan sinyal tanggal `d` menjadi **final** jika diproses oleh run berstatus `LENGKAP`, atau setelah `maks_hari_tunggu_data` hari bursa berlalu (dinilai saat `d` diproses: banyak hari bursa dalam (`d`, `t`] ≥ ambang). Sebelum itu barisnya bertanda `sementara = 1`.
+   - Saat dibangkitkan ulang dengan data lebih lengkap, sinyal baru ditambahkan dengan `ditampilkan = 0` dan `susulan = 0`.
+   - Sinyal yang sudah tercatat dipertahankan. Sinyal yang tidak muncul lagi diberi tanda `tidak_muncul_di_data_final` (dinilai ulang setiap kali hari itu diproses; nilai terakhir berlaku).
+   - `ditampilkan = 1` hanya untuk sinyal `t` yang dicatat saat `t` pertama kali diproses (atau dibangkitkan ulang dengan `--catat-ulang`) oleh run yang membuat laporan `t`.
+3. **Status `BELUM_TERSEDIA`** tidak menulis sinyal; run itu tetap dicatat di tabel `run` (tanpa hari diproses).
+4. **Idempoten.** Run ulang untuk `t` yang sudah final tidak menambah baris di tabel mana pun (termasuk `run`), dan laporan menulis "sudah tercatat". Setiap laporan disimpan di `output/laporan/<t>/run_<HHMMSS>/` (akhiran `_2`, `_3`, … bila folder itu sudah ada) tanpa menimpa versi sebelumnya; salinan terbaru ada di `output/laporan/<t>/`.
+5. **Hitung ulang turunan.** `hasil_sinyal` dan `kertas_*` periode berjalan **dihitung ulang dari awal setiap run** dari data terkini (deterministik). Revisi data otomatis tercermin. Laporan menyebut "K transaksi kertas berubah karena revisi data" jika ada (K = transaksi kertas tertutup dari run sebelumnya yang hilang atau berubah). Order kertas yang bar `d+1`-nya belum tersedia berstatus `MENUNGGU`. Tidak dihitung ulang pada run `BELUM_TERSEDIA`.
+6. **Revisi bar.** Jika `bar_saat_sinyal`, setelah dikonversi ke ruang tersesuaikan, berbeda dari data terkini melewati toleransi (`data.toleransi_revisi_pct` untuk OHLC, `data.toleransi_revisi_volume_pct` untuk volume), atau barnya tidak ada lagi, baris diberi tanda `data_direvisi = 1`. Tanda ini tidak pernah dikembalikan ke 0.
 7. **`--catat-ulang`** menghapus baris `sinyal` untuk tanggal yang sedang diproses (`--tanggal`, atau `t`). Penghapusan dicatat di `run.catatan`, lalu sinyal dibangkitkan ulang.
 8. **Replay `--tanggal`** tidak menulis ke jurnal, kecuali diberi `--catat`.
 9. **`jurnal --rekonsiliasi`** membandingkan sinyal yang ditampilkan live (`ditampilkan = 1`) dengan sinyal yang dibangkitkan ulang dari data terkini dengan config yang sama.
-   - Perbedaan (tambah/hilang/level berubah) dilaporkan per baris, dengan petunjuk penyebab: `sementara`, `data_direvisi`, atau hash berbeda.
+   - Tanggal yang dibandingkan: tanggal yang punya sinyal `ditampilkan = 1`, ditambah `tanggal_data` setiap run yang mencatat sinyal. Eligibilitas memakai `snapshot_input` hari itu; strategi = strategi `aktif` config saat ini. Data dimuat dari cache sampai min(`tanggal_data` run terakhir, `t` sekarang).
+   - Perbedaan (tambah/hilang/level berubah pada `harga_maks`, `stop_awal`, `target_harga`) dilaporkan per baris, dengan petunjuk penyebab: `sementara`, `data_direvisi`, atau hash berbeda.
    - Pada data yang final dan tidak direvisi, selisihnya harus nol.
 
 ### 17.4 Pemantauan penyimpangan
 
-**Sampel** per strategi, dari `hasil_sinyal`:
+**Sampel** per strategi, dari `hasil_sinyal` (unit `TERISI` yang sudah tertutup, dengan R):
 
 - hanya sinyal dengan `hash_aturan` periode kertas berjalan;
 - hanya `tanggal_sinyal` **setelah** `tanggal_data_terakhir` gerbang strategi itu, agar tidak tumpang tindih dengan holdout;
 - tidak termasuk `status_pasar = JANGAN_BELI` dan `STOP_TERLALU_JAUH`.
 
-Filter yang sama diterapkan pada `sinyal_r_<strategi>.csv` dari `folder_run` gerbang strategi itu. Kedua sisi tanpa deduplikasi.
+Filter yang sama diterapkan pada `sinyal_r_<strategi>.csv` dari `folder_run` gerbang strategi itu, dibatasi ke holdout (`tanggal_sinyal` ≥ `holdout_mulai` entri gerbang), unit `TERISI` yang sudah tertutup. Kedua sisi tanpa deduplikasi.
 
 **Uji**, jika sampel ≥ `min_transaksi_peringatan`:
 
-1. Ambil `n_kertas` nilai R dengan pengembalian dari distribusi holdout tersebut, sebanyak `bootstrap_iterasi` kali dengan `bootstrap_seed`. Hitung rata-rata setiap sampel.
+1. Ambil `n_kertas` nilai R dengan pengembalian dari distribusi holdout tersebut, sebanyak `bootstrap_iterasi` kali dengan `bootstrap_seed` (`numpy.random.default_rng(bootstrap_seed)`). Hitung rata-rata setiap sampel.
 2. Peringatan muncul jika rata-rata R jurnal < persentil ke-`persentil_peringatan` dari rata-rata bootstrap tersebut.
 
 ---
@@ -1688,7 +1702,11 @@ Filter yang sama diterapkan pada `sinyal_r_<strategi>.csv` dari `folder_run` ger
 | CSV | `kandidat.csv` | Semua sinyal hari itu beserta status. Baris pertama: disclaimer. |
 | Excel | `rencana.xlsx` | Sheet `Ringkasan`, `Rencana`, `Kandidat`, `Posisi`, `Pasar`, `Kualitas Data`, `Catatan`. Disclaimer di baris 1 setiap sheet. |
 
-Jika berkas keluaran terkunci (sedang dibuka di Excel), program menulis ke `<nama>_<HHMMSS>.<ext>`, memberi peringatan di laporan dan Telegram, lalu melanjutkan run.
+**Kolom `kandidat.csv`** (urutan seleksi §13.2; format mesin seperti berkas backtest): `tanggal_sinyal, kode, nama, sektor, strategi, skor, status_sinyal, alasan, status_pasar, harga_ref, harga_maks, stop_awal, target_harga, lot, lembar, nilai_idr, biaya_beli_idr, risiko_idr, rata_nilai_idr, bergantung_jual`. `nilai_idr`, `biaya_beli_idr`, dan `risiko_idr` hanya untuk `REKOMENDASI`; `bergantung_jual` = himpunan minimal jual terjadwal (`A+B;C`).
+
+**Grafik HTML:** lilin dengan warna tinta netral (naik redup, turun gelap), seri garis memakai slot kategorikal tetap (biru, jingga, aqua), level stop/target memakai warna status merah/hijau **dengan label teks** (tidak pernah warna saja). Satu grafik per saham (rencana dan posisi `TAHAN`/`JUAL`/`CEK_ORDER`), satu IHSG, satu breadth. Markdown menyebut grafik sebagai teks.
+
+Jika berkas keluaran terkunci (sedang dibuka di Excel), program menulis ke `<nama>_<HHMMSS>.<ext>`, memberi peringatan di laporan (berkas laporan dirender ulang memuat peringatan itu) dan Telegram, lalu melanjutkan run. `kualitas_data.csv` (§8.5) selalu ditulis, apa pun isi `laporan.format`.
 
 ### 18.3 Telegram
 
@@ -1755,8 +1773,8 @@ Jika berkas keluaran terkunci (sedang dibuka di Excel), program menulis ke `<nam
 | `cek [--silang KODE TANGGAL]` | Validasi config + semua input. Mencantumkan item belum diverifikasi, `holidays.csv`, `holdout_mulai`, `.env` (termasuk deteksi `.env.txt` dan PERINGATAN bila token masih nilai contoh `CONTOH_FIKTIF` dari `contoh/env.contoh`), dan perbandingan kalender. `--silang` mencetak bar cache, `F(d)`, dan nilai nominal untuk dicocokkan dengan sumber resmi. |
 | `unduh [--penuh] [--simbol K1,K2]` | Memperbarui cache (§8.2). |
 | `backtest [--strategi ...] [--mode ...]` | §16 |
-| `harian [--jadwal] [--offline] [--tanggal D] [--tanpa-notifikasi] [--catat] [--catat-ulang]` | §18 |
-| `jurnal [--ekspor] [--rekonsiliasi]` | §17 |
+| `harian [--jadwal] [--offline] [--tanggal D] [--tanpa-notifikasi] [--catat] [--catat-ulang]` | §18. `--tanggal D`: replay; D harus hari bursa (kalender manual) ≤ `t` sekarang, selain itu kode 3; baris `portfolio.csv` yang dibeli sesudah D tidak ikut (dicatat di laporan); tidak menulis ke jurnal kecuali `--catat` atau `--catat-ulang`. Run tanpa `--tanggal` selalu mencatat. `--offline`: hanya cache (§8.3). |
+| `jurnal [--ekspor] [--rekonsiliasi]` | §17. Tanpa opsi: ringkasan run, sinyal, dan periode kertas. Jurnal belum ada, terkunci, atau rusak → kode 6. Selisih rekonsiliasi tetap kode 0. |
 | `uji-telegram [--cari-chat-id]` | §18.3 |
 
 **Semua keluaran terminal**, termasuk `--help`, `--versi`, dan pesan error, memuat "BUKAN SARAN INVESTASI". Bila konsol tidak memakai UTF-8, karakter yang tidak bisa ditampilkan diganti `?` dan program tidak berhenti.

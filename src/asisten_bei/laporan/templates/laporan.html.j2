@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ judul }} — {{ singkat }}</title>
+<style>
+{{ css }}
+</style>
+</head>
+<body>
+<main>
+<p class="disclaimer">{{ singkat }}</p>
+{% for bagian in bagian %}
+<section id="{{ bagian.id }}">
+{% if loop.first %}<h1>{{ bagian.judul }}</h1>{% else %}<h2>{{ bagian.judul }}</h2>{% endif %}
+{% for b in bagian.blok %}
+{% if b.jenis == "paragraf" %}
+<p{% if b.kelas %} class="{{ b.kelas }}"{% endif %}>{{ b.teks }}</p>
+{% elif b.jenis == "daftar" %}
+<ul>{% for x in b.butir %}<li>{{ x }}</li>{% endfor %}</ul>
+{% elif b.jenis == "tabel" %}
+<div class="gulir"><table><thead><tr>{% for k in b.kolom %}<th>{{ k }}</th>{% endfor %}</tr></thead><tbody>
+{% for r in b.baris %}<tr>{% for x in r %}<td>{{ x }}</td>{% endfor %}</tr>
+{% endfor %}</tbody></table></div>
+{% elif b.jenis == "grafik" %}
+<figure><img alt="{{ b.judul }}" src="data:image/png;base64,{{ b.data }}"><figcaption>{{ b.judul }}</figcaption></figure>
+{% endif %}
+{% endfor %}
+</section>
+{% endfor %}
+<p class="disclaimer">{{ disclaimer }}</p>
+</main>
+</body>
+</html>

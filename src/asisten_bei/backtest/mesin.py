@@ -16,7 +16,7 @@ berikutnya.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -188,9 +188,14 @@ def simulasikan(
     sektor_dari: Callable[[str], str],
     tanggal_awal: date,
     tanggal_penilaian: Iterable[date] = (),
+    lolos_pada: Callable[[date], Collection[str] | None] | None = None,
+    sektor_pada: Callable[[date], Callable[[str], str]] | None = None,
 ) -> HasilSimulasi:
     """Linimasa §16.2 untuk satu run × mode. `tanggal_penilaian`: tanggal yang nilai posisi terbukanya
-    dicatat (`pos.meta["nilai_pada"][d]`, mis. hari bursa terakhir in-sample untuk `MELEWATI_HOLDOUT`)."""
+    dicatat (`pos.meta["nilai_pada"][d]`, mis. hari bursa terakhir in-sample untuk `MELEWATI_HOLDOUT`).
+
+    Jurnal kertas (§17.2): `lolos_pada(d)` menggantikan `run.strategi_lolos` dengan gerbang yang berlaku pada
+    `d`, dan `sektor_pada(d)` menggantikan `sektor_dari` dengan sektor dari `snapshot_input` milik `d`."""
     cfg = pasar.cfg
     bei = AturanBEI(cfg)
     kal = pasar.kalender
@@ -285,6 +290,8 @@ def simulasikan(
         sinyal = [s for s in kh.sinyal if s.strategi in run.strategi]
         if not sinyal:
             continue
+        sektor_hari = sektor_pada(d) if sektor_pada is not None else sektor_dari
+        lolos_hari = lolos_pada(d) if lolos_pada is not None else run.strategi_lolos
         porto = KeadaanPortofolio(
             posisi=tuple(PosisiTerbuka(p.kode, p.sektor, p.jual_terjadwal is not None) for p in posisi),
             kas_idr=kas,
@@ -295,12 +302,12 @@ def simulasikan(
         )
         hs = seleksi(
             sinyal, status_pasar=status_pasar, portofolio=porto, konteks=konteks, cfg=cfg,
-            strategi_lolos=run.strategi_lolos, deduplikasi=run.deduplikasi, sektor_dari=sektor_dari,
+            strategi_lolos=lolos_hari, deduplikasi=run.deduplikasi, sektor_dari=sektor_hari,
             hitung_ketergantungan=False,
         )
         for k in hs.kandidat:
             if k.status == REKOMENDASI:
-                tertunda.append(_order(k, sektor_dari(k.kode), d, ekuitas, status_pasar))
+                tertunda.append(_order(k, sektor_hari(k.kode), d, ekuitas, status_pasar))
             else:
                 dilewati.append(SinyalDilewati(d, k.kode, k.strategi, k.sinyal.skor, k.status, None, k.alasan))
     for order in tertunda:  # order dari close hari terakhir: bar t+1 belum ada
@@ -358,6 +365,8 @@ class JalurSinyal:
     r: Decimal | None = None
     hari: int | None = None
     tanda: tuple[str, ...] = ()
+    harga_entry: Decimal | None = None  # nominal pada tanggal entry (jurnal `hasil_sinyal`, §17.1)
+    harga_exit: Decimal | None = None  # nominal pada tanggal exit (TERBUKA: close valid terakhir × F(akhir))
 
 
 def cfg_per_unit(cfg: "Config") -> "Config":
@@ -394,7 +403,7 @@ def jalur_per_sinyal(
 
         def selesai(pos: ex.Posisi, j: JalurSinyal) -> None:
             k = pos.keluar
-            j.tanggal_exit, j.alasan_exit, j.r = k.tanggal, k.alasan, k.r
+            j.tanggal_exit, j.alasan_exit, j.r, j.harga_exit = k.tanggal, k.alasan, k.r, k.harga_nominal
             j.hari = kal.nomor_hari(pos.tanggal_entry, k.tanggal)
 
         aktif_hari_ini = [pos for pos, _j in terbuka]  # untuk tanda, seperti simulasikan
@@ -415,6 +424,7 @@ def jalur_per_sinyal(
                 continue
             pos = ex.isi_order(order, b, cfg, bei)
             j.tanggal_entry = d
+            j.harga_entry = pos.harga_beli * pos.faktor_entry
             unit.append((pos, j))
             aktif_hari_ini.append(pos)
             if ex.keluar_hari_entry(pos, b, cfg, bei) is not None:
@@ -452,7 +462,7 @@ def jalur_per_sinyal(
         dv = pasar.tampilan(akhir)
         for pos, j in terbuka:  # masih terbuka di akhir: dinilai pada close valid terakhir (seperti transaksi_*)
             k = ex.tutup_terbuka(pos, akhir, cfg, ex._f(dv.faktor_split(pos.kode)))
-            j.tanggal_exit, j.alasan_exit, j.r = akhir, ex.TERBUKA, k.r
+            j.tanggal_exit, j.alasan_exit, j.r, j.harga_exit = akhir, ex.TERBUKA, k.r, k.harga_nominal
             j.hari = kal.nomor_hari(pos.tanggal_entry, akhir)
     for pos, j in unit:
         j.tanda = tuple(t for t in ex.URUTAN_TANDA if t in pos.tanda)

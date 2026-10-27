@@ -152,6 +152,27 @@ def jalankan_unduh(
     return hasil
 
 
+def perbarui_cache_simbol(
+    ctx: KonteksApp,
+    daftar: Sequence[str],
+    *,
+    kal: Kalender,
+    sekarang: datetime,
+    t: date,
+    pabrik_ticker: Callable | None = None,
+    tidur: Callable[[float], None] | None = None,
+) -> HasilUnduh:
+    """Perbarui cache semua provider jaringan untuk `daftar` (dipakai run harian, §8.2). Pemanggil memegang kunci."""
+    hasil = HasilUnduh(t=t, simbol=list(daftar))
+    for nama in ctx.cfg.data.provider_urutan:
+        if nama in PROVIDER_LOKAL:
+            continue
+        mulai = waktu.sekarang()
+        _unduh_provider(ctx, nama, daftar, False, kal, sekarang, hasil, pabrik_ticker, tidur)
+        _log_durasi(f"unduh {nama}", mulai)
+    return hasil
+
+
 def _log_durasi(langkah: str, mulai: datetime) -> None:
     log.info("langkah %s: %.1f s", langkah, (waktu.sekarang() - mulai).total_seconds())
 
