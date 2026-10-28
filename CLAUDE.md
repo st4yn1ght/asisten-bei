@@ -12,7 +12,7 @@ python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/b
 .venv/bin/python -m asisten_bei [--config config.yaml] [--akar .] cek [--silang KODE YYYY-MM-DD]
 .venv/bin/python -m asisten_bei unduh [--penuh] [--simbol K1,K2]
 .venv/bin/python -m asisten_bei backtest | harian [--offline --tanggal D --catat] | jurnal [--ekspor --rekonsiliasi]
-.venv/bin/python -m asisten_bei uji-telegram   # tahap 7
+.venv/bin/python -m asisten_bei uji-telegram [--cari-chat-id]   # 0 terkirim, 3 .env belum siap, 4 gagal kirim
 
 # Test (Windows: scripts\uji.bat)
 .venv/bin/python -m pytest -q
@@ -37,3 +37,5 @@ ASISTEN_BEI_PERBARUI_ACUAN=1 .venv/bin/python -m pytest tests/test_e2e.py -q
   Pembantu bersama: `tests/bantu_pasar.py` (`cfg_uji` dengan kunci bertitik, `bar`/`naik`/`turun`, `pasar(...)` → `DataPasar` sintetis). Tanda kualitas data semua simbol satu run wajib dihitung sampai `akhir` run yang sama (`bangun_data_saham`; ditegakkan `DataPasar`).
 - Enum hanya nilai §4.3. Teks untuk pengguna berbahasa Indonesia; kata "trade" tidak dipakai di laporan.
 - Kode keluar §20.1, prioritas 3 > 1 > 5 > 2 > 6 > 4 > 0 (`operasional.gabung_kode_keluar`).
+- **Telegram:** semua HTTP lewat `notifikasi.telegram.HTTP` (diganti server palsu di uji, `tests/test_telegram.py`); token tidak pernah dicetak (`operasional.PENYARING`). Uji `harian` lewat `tests/bantu_harian.py` memakai `--tanpa-notifikasi` kecuali `notifikasi=True`.
+- **Skrip Windows** (`scripts/*.bat`, `daftar_jadwal.ps1`): murni ASCII, CRLF (`.gitattributes`), konvensi §19.1/§19.3; tidak bisa dijalankan di Linux, jadi diperiksa statis oleh `tests/test_skrip.py` (juga isi README §22.5).

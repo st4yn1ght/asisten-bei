@@ -219,7 +219,17 @@ def _rel(ctx, rel) -> str:
 
 
 def isi_berkas(lap: LaporanHarian) -> dict[str, bytes]:
-    """Isi setiap berkas laporan menurut `laporan.format` (nama → byte)."""
+    """Isi setiap berkas laporan menurut `laporan.format` (nama → byte). Teks melewati penyaring rahasia (§19.5)."""
+    from ..operasional import PENYARING
+
+    hasil = _isi_berkas(lap)
+    for nama in (NAMA_MD, NAMA_HTML, NAMA_KANDIDAT):
+        if nama in hasil:
+            hasil[nama] = PENYARING.sensor(hasil[nama].decode("utf-8")).encode("utf-8")
+    return hasil
+
+
+def _isi_berkas(lap: LaporanHarian) -> dict[str, bytes]:
     fmt = set(lap.cfg.laporan.format)
     hasil: dict[str, bytes] = {}
     if "markdown" in fmt:
@@ -277,4 +287,19 @@ def tulis_laporan(ctx: "KonteksApp", lap: LaporanHarian, termuat: Any, sekarang:
     return berkas, folder_run, peringatan
 
 
-__all__ = ["LaporanHarian", "bangun_laporan", "isi_berkas", "tulis_laporan"]
+def tulis_ulang(lap: LaporanHarian, berkas: dict[str, Path], folder_run: Path) -> list[str]:
+    """Render ulang berkas laporan (mis. setelah notifikasi gagal, §18.3) ke folder run dan salinan terbaru yang
+    sudah ditulis; `kualitas_data.csv` tidak berubah. Berkas yang kini terkunci dilewati; pesannya dikembalikan."""
+    gagal: list[str] = []
+    for nama, data in isi_berkas(lap).items():
+        for path in (Path(folder_run) / nama, berkas.get(nama)):
+            if path is None:
+                continue
+            try:
+                tulis_atomik(path, data)
+            except OSError as ex:
+                gagal.append(f"{path.name} tidak bisa ditulis ulang: {ex}")
+    return gagal
+
+
+__all__ = ["LaporanHarian", "bangun_laporan", "isi_berkas", "tulis_laporan", "tulis_ulang"]

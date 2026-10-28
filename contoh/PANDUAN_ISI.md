@@ -303,8 +303,9 @@ TELEGRAM_CHAT_ID=987654321
 
 1. Buat bot lewat @BotFather di Telegram (`/newbot`) dan salin tokennya.
 2. Kirim satu pesan apa pun ke bot Anda.
-3. Dapatkan chat ID dengan `.venv\Scripts\python -m asisten_bei uji-telegram --cari-chat-id` (tersedia mulai
-   tahap 7, bersama notifikasi Telegram; sebelum itu item ini boleh ditunda).
+3. Isi dulu `TELEGRAM_BOT_TOKEN`, lalu dapatkan chat ID dengan
+   `.venv\Scripts\python -m asisten_bei uji-telegram --cari-chat-id` (atau `scripts\uji_telegram.bat --cari-chat-id`)
+   dan salin angkanya ke `TELEGRAM_CHAT_ID`. Setelah itu klik ganda `scripts\uji_telegram.bat` untuk pesan uji.
 4. Jangan bagikan berkas `.env` ke siapa pun. `cek` memberi peringatan bila yang ada justru `.env.txt`, atau
    bila token masih nilai contoh.
 

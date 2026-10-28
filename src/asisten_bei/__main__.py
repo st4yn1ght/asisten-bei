@@ -16,9 +16,7 @@ from collections.abc import Callable, Sequence
 
 from . import DISCLAIMER, DISCLAIMER_SINGKAT, __version__, operasional
 
-PERINTAH_BELUM_TERSEDIA = {
-    "uji-telegram": "tahap 7",
-}
+PERINTAH_BELUM_TERSEDIA: dict[str, str] = {}  # perintah → tahap (§23); semua perintah sudah tersedia
 
 
 class KesalahanArgumen(Exception):
@@ -128,6 +126,10 @@ def _jalankan(args: argparse.Namespace, keluar: Callable[[str], None]) -> int:
             from .harian import jalankan_jurnal
 
             return jalankan_jurnal(ctx, ekspor=args.ekspor, rekonsiliasi=args.rekonsiliasi, keluar=keluar).kode_keluar
+        if args.perintah == "uji-telegram":
+            from .notifikasi.telegram import jalankan_uji_telegram
+
+            return jalankan_uji_telegram(ctx, cari_chat_id=args.cari_chat_id, keluar=keluar)
         tahap = PERINTAH_BELUM_TERSEDIA[args.perintah]
         keluar(f"Perintah {args.perintah} belum tersedia pada versi ini (dikerjakan pada {tahap}, SPEC §23).")
         keluar("")
@@ -137,6 +139,33 @@ def _jalankan(args: argparse.Namespace, keluar: Callable[[str], None]) -> int:
         log.info("selesai: %s", args.perintah)
 
 
+def _error_jadwal(args: argparse.Namespace | None, kode: int, rincian: str | list[str],
+                  keluar: Callable[[str], None]) -> None:
+    """`harian --jadwal` yang berakhir dengan kode 1, 3, atau 5 (tanpa laporan) → pesan error Telegram (§18.3).
+    Kode 2 dan 6 sudah tercantum di pesan laporan harian. Config tidak valid: tetap dicoba lewat `.env` di --akar
+    (atau folder config), karena status `aktif` tidak bisa dibaca."""
+    if args is None or getattr(args, "perintah", None) != "harian" or not getattr(args, "jadwal", False):
+        return
+    if getattr(args, "tanpa_notifikasi", False):
+        return
+    from pathlib import Path
+
+    config = Path(getattr(args, "config", "config.yaml"))
+    akar = Path(getattr(args, "akar", None) or config.resolve().parent)
+    try:
+        from .config import muat_config
+
+        if not muat_config(config, akar).cfg.notifikasi.telegram.aktif:
+            return
+    except Exception:
+        pass  # config tidak valid: tetap coba kirim
+    from .notifikasi.telegram import kirim_error
+
+    hasil = kirim_error(akar, f"run harian terjadwal gagal (kode keluar {kode})", rincian)
+    if not hasil.berhasil:
+        keluar("PERINGATAN: Notifikasi Telegram gagal: " + "; ".join(hasil.galat))
+
+
 def main(argv: Sequence[str] | None = None, keluar: Callable[[str], None] | None = None) -> int:
     operasional.pasang_penyaring_rahasia()
     keluar = keluar or (lambda s: print(s, flush=True))
@@ -144,6 +173,7 @@ def main(argv: Sequence[str] | None = None, keluar: Callable[[str], None] | None
     from .inputs import InputTidakValid
 
     log = logging.getLogger(operasional.NAMA_LOGGER)
+    args = None
     try:
         args = buat_parser().parse_args(argv)
         keluar(DISCLAIMER_SINGKAT)
@@ -157,16 +187,19 @@ def main(argv: Sequence[str] | None = None, keluar: Callable[[str], None] | None
         keluar("ERROR config tidak valid:")
         for m in e.pesan:
             keluar(f"  - {m}")
+        _error_jadwal(args, operasional.KODE_INPUT, ["config tidak valid:", *e.pesan], keluar)
         keluar(DISCLAIMER)
         return operasional.KODE_INPUT
     except InputTidakValid as e:
         keluar("ERROR input tidak valid (jalankan cek untuk rinciannya):")
         for m in e.masalah:
             keluar(f"  - {m}")
+        _error_jadwal(args, operasional.KODE_INPUT, ["input tidak valid:", *(str(m) for m in e.masalah)], keluar)
         keluar(DISCLAIMER)
         return operasional.KODE_INPUT
     except operasional.KunciDipegang as e:
         keluar(f"ERROR: {e}")
+        _error_jadwal(args, operasional.KODE_KUNCI, str(e), keluar)
         keluar(DISCLAIMER_SINGKAT)
         return operasional.KODE_KUNCI
     except KeyboardInterrupt:
@@ -177,6 +210,7 @@ def main(argv: Sequence[str] | None = None, keluar: Callable[[str], None] | None
             log.exception("error tak terduga")
         keluar(f"ERROR tak terduga: {type(e).__name__}: {e}")
         print(traceback.format_exc(), file=sys.stderr)
+        _error_jadwal(args, operasional.KODE_ERROR, f"error tak terduga: {type(e).__name__}: {e}", keluar)
         keluar(DISCLAIMER_SINGKAT)
         return operasional.KODE_ERROR
     finally:

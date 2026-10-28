@@ -1718,19 +1718,28 @@ Jika berkas keluaran terkunci (sedang dibuka di Excel), program menulis ke `<nam
 - Token dan chat ID dibaca dari `.env` (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) lewat `python-dotenv`.
 - Pesan memakai parse mode HTML. Semua teks dinamis di-escape dengan `html.escape`, dan hanya tag `<b>`, `<i>`, `<code>`, `<pre>` yang dipakai.
 - Isi pesan: status pasar + 1 baris alasan, ringkasan aksi (termasuk pengingat menarik order yang tidak terisi saat pembukaan), rencana beli singkat, perubahan level stop, dan peringatan penting.
+  - Urutan pesan harian: kepala ("data `t`, untuk `t+1`", ditambah REPLAY bila `--tanggal`); status data run, beserta kode keluar bila bukan 0; banner §18.1 (tebal); status pasar + alasan; ringkasan aksi; rencana beli (per baris: kode, strategi, lot, limit = `harga_maks`, stop, target, risiko Rp) diikuti pengingat menarik order beli yang tidak terisi saat pembukaan; perubahan level stop order otomatis (posisi yang stop besoknya berbeda dari hari ini); paling banyak 6 peringatan (kegagalan jurnal selalu disertakan); rujukan ke `laporan.html`; baris disclaimer.
+- Penyaring rahasia (§19.5) diterapkan pada setiap pesan dan caption sebelum dikirim.
 
 **Pengiriman:**
 
 - Pesan dipecah per baris setelah dirakit. Setiap bagian tag-seimbang, **diakhiri baris disclaimer**, dan ≤ 4.000 karakter termasuk disclaimer.
-- Balasan 400 (parse) → kirim ulang sebagai teks polos (tag dibuang, entitas di-unescape). Balasan 429 → tunggu `retry_after`, lalu coba sekali lagi.
+- Balasan 400 (parse) → kirim ulang sebagai teks polos (tag dibuang, entitas di-unescape). Balasan 429 → tunggu `retry_after` (1 detik bila tidak ada) lewat `waktu.tidur`, lalu coba sekali lagi.
+- Setiap permintaan HTTP memakai batas waktu 30 detik (konstanta program, bukan parameter config).
 - `laporan.html` dilampirkan jika `lampirkan_html: true` dan ukurannya ≤ `maks_lampiran_mb`, dengan caption "Laporan <t> — BUKAN SARAN INVESTASI." Jika lebih besar, diganti pesan pemberitahuan.
 
 **Wajib:**
 
 - **Setiap** pesan, termasuk error, libur, DATA BELUM TERSEDIA, dan uji, diakhiri baris "BUKAN SARAN INVESTASI."
 - Pesan error dikirim untuk kode keluar 1, 2, 3, 5, dan 6 dalam mode `--jadwal`.
-- Kegagalan kirim dicatat di log dan laporan.
+  - Kode 1, 3, 5 (tidak ada laporan): pesan error tersendiri "run harian terjadwal gagal (kode keluar N)" beserta rinciannya, dikirim dari `__main__`. Bila config tidak bisa dibaca, `aktif` tidak diketahui sehingga pengiriman tetap dicoba lewat `.env` di `--akar` (default: folder config).
+  - Kode 2 dan 6: laporan tetap dibuat, dan pesan harian itu sendiri memuat status data, kode keluar, banner, dan peringatan jurnal.
+  - `--tanpa-notifikasi` atau `aktif: false` (bila config terbaca) mematikan semua pesan.
+- `harian --jadwal` yang keluar dengan "tidak ada data baru" mengirim pesan info hanya jika `aktif` dan `jadwal.kirim_pesan_saat_libur`. Gagal kirim → kode 4.
+- Kegagalan kirim dicatat di log dan laporan: berkas laporan di folder `t` dan di folder run ditulis ulang dengan peringatan itu, lalu kode keluar 4. Lampiran yang mungkin sudah terkirim tidak diulang.
 - `uji-telegram` mengirim pesan uji; `--cari-chat-id` mencetak chat ID dari `getUpdates`.
+  - Pesan uji tetap dikirim walaupun `aktif: false` (dengan catatan di terminal). `--cari-chat-id` hanya memerlukan token; tanpa pesan masuk, perintah ini meminta Anda mengirim pesan ke bot lalu mengulang.
+  - Kode keluar: 0 terkirim; 3 `.env` belum disiapkan (tidak ada, token/chat ID kosong, atau token masih nilai contoh), dengan petunjuk §19.4; 4 gagal kirim.
 
 ### 18.4 Teks disclaimer (wajib di semua keluaran)
 
@@ -1744,7 +1753,7 @@ Jika berkas keluaran terkunci (sedang dibuka di Excel), program menulis ke `<nam
 
 1. Pasang Python 3.12 atau 3.13 (64-bit) dari python.org. Centang "Add python.exe to PATH" dan "py launcher".
 2. Ekstrak `asisten-bei` ke folder dengan jalur sederhana, mis. `C:\asisten-bei`. **Jangan** di dalam OneDrive/Dropbox, karena sinkronisasi bisa mengunci `jurnal.sqlite` dan cache.
-3. Klik ganda `scripts\pasang.bat`. Skrip ini memakai `py -3.12` (atau `-3.13`), mencetak versinya, berhenti dengan pesan jelas bila Python tidak ditemukan, lalu membuat `.venv` dan memasang `requirements.txt`.
+3. Klik ganda `scripts\pasang.bat`. Skrip ini memakai `py -3.12` (atau `-3.13`), mencetak versinya, berhenti dengan pesan jelas bila Python tidak ditemukan, lalu membuat `.venv` dan memasang `requirements.txt`. Terakhir, paket program sendiri dipasang dengan `pip install -e . --no-deps`, agar `python -m asisten_bei` (kode di `src/`) bisa dijalankan dari folder proyek.
 4. Isi berkas di `input\` dengan Notepad (§6), lalu tinjau `config.yaml` (§24).
 5. `scripts\cek.bat` → perbaiki semua ERROR.
 6. `scripts\unduh.bat`. Unduhan pertama bisa lama.
@@ -1763,8 +1772,10 @@ Jika berkas keluaran terkunci (sedang dibuka di Excel), program menulis ke `<nam
 - Dimulai dengan `cd /d "%~dp0.."`.
 - Memanggil `".venv\Scripts\python.exe" -m asisten_bei ...` langsung, tanpa `activate`, dengan `set PYTHONUTF8=1`.
 - Menyimpan `set KODE=%ERRORLEVEL%`, lalu `pause` (hanya untuk mode manual), lalu `exit /b %KODE%`.
-- `harian_terjadwal.bat` menjalankan `if not exist "output\log" mkdir "output\log"` sebelum apa pun, lalu menambahkan `>> "output\log\terjadwal.log" 2>&1` dan menampilkan "Jangan tutup jendela ini".
+- `harian_terjadwal.bat` menjalankan `if not exist "output\log" mkdir "output\log"` tepat setelah `cd /d`, sebelum apa pun yang lain, lalu menambahkan `>> "output\log\terjadwal.log" 2>&1` dan menampilkan "Jangan tutup jendela ini".
 - Semua path dikutip.
+- Berkas manual (satu per perintah §19.2: `cek`, `unduh`, `backtest`, `harian`, `jurnal`, `uji_telegram` → `uji-telegram`; ditambah `uji.bat` untuk pytest) meneruskan argumen tambahan (`%*`). Bila `.venv` belum ada, berkas meminta Anda menjalankan `pasang.bat` dan keluar dengan kode 1. Setelah perintah selesai, kode keluarnya dicetak.
+- Berkas `.bat` dan `.ps1` murni ASCII dengan akhir baris CRLF (dijaga `.gitattributes`). Berkas `.bat` memakai `chcp 65001` agar konsol memakai UTF-8. Konvensi ini diperiksa uji statis.
 - `config.py` menyelesaikan path relatif terhadap `--akar` (default: folder berisi `config.yaml`), bukan terhadap direktori kerja.
 
 ### 19.2 Perintah CLI
@@ -1778,7 +1789,7 @@ Jika berkas keluaran terkunci (sedang dibuka di Excel), program menulis ke `<nam
 | `backtest [--strategi ...] [--mode ...]` | §16 |
 | `harian [--jadwal] [--offline] [--tanggal D] [--tanpa-notifikasi] [--catat] [--catat-ulang]` | §18. `--tanggal D`: replay; D harus hari bursa (kalender manual) ≤ `t` sekarang, selain itu kode 3; baris `portfolio.csv` yang dibeli sesudah D tidak ikut (dicatat di laporan); tidak menulis ke jurnal kecuali `--catat` atau `--catat-ulang`. Run tanpa `--tanggal` selalu mencatat. `--offline`: hanya cache (§8.3). |
 | `jurnal [--ekspor] [--rekonsiliasi]` | §17. Tanpa opsi: ringkasan run, sinyal, dan periode kertas. Jurnal belum ada, terkunci, atau rusak → kode 6. Selisih rekonsiliasi tetap kode 0. |
-| `uji-telegram [--cari-chat-id]` | §18.3 |
+| `uji-telegram [--cari-chat-id]` | §18.3. Kode keluar: 0 terkirim; 3 `.env` belum disiapkan; 4 gagal kirim. |
 
 **Semua keluaran terminal**, termasuk `--help`, `--versi`, dan pesan error, memuat "BUKAN SARAN INVESTASI". Bila konsol tidak memakai UTF-8, karakter yang tidak bisa ditampilkan diganti `?` dan program tidak berhenti.
 
@@ -1814,14 +1825,17 @@ Kode keluar dan prioritasnya ada di §20.
 
 ### 19.3 Task Scheduler
 
-`scripts\daftar_jadwal.bat` menjalankan `powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0daftar_jadwal.ps1"`, tanpa mengubah kebijakan sistem. Skrip ini membuat tugas **"Asisten BEI Harian"**:
+`scripts\daftar_jadwal.bat` menjalankan `powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0daftar_jadwal.ps1"`, tanpa mengubah kebijakan sistem. Skrip ini membuat tugas **"Asisten BEI Harian"**, atau menimpanya (`-Force`) bila sudah ada:
 
-- Pemicu Senin–Jumat pada `jadwal.jam_run` (19:30) **WIB**. Skrip mengonversinya ke jam lokal Windows saat pendaftaran dan mencetak hasilnya. Jika zona waktu Windows bukan WIB, skrip memberi peringatan. Program sendiri tetap aman, karena §8.6 menunggu sampai batas bar final.
+- `jadwal.jam_run` dan `operasional.batas_waktu_run_jam` dibaca lewat `scripts\info_jadwal.py`, yang memakai `muat_config` sehingga config sekaligus divalidasi.
+  - Pembantu ini hanya menulis ke stdout, karena Windows PowerShell 5.1 dengan `ErrorActionPreference = "Stop"` menghentikan skrip pada keluaran stderr program.
+  - Kode keluar skrip: config tidak valid → 3; `.venv` tidak ada atau pendaftaran gagal → 1; berhasil → 0.
+- Pemicu Senin–Jumat pada `jadwal.jam_run` (19:30) **WIB**. Skrip mengonversinya ke jam lokal Windows saat pendaftaran dan mencetak hasilnya. Bila konversi melewati tengah malam, hari pemicu ikut digeser agar tetap Senin–Jumat WIB. Jika zona waktu Windows bukan WIB, skrip memberi peringatan. Program sendiri tetap aman, karena §8.6 menunggu sampai batas bar final.
 - `New-ScheduledTaskAction -Execute cmd.exe -Argument '/c "<path absolut>\scripts\harian_terjadwal.bat"' -WorkingDirectory <root proyek>`
-- `New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours <batas_waktu_run_jam>) -MultipleInstances IgnoreNew`
+- `New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes <⌈batas_waktu_run_jam × 60⌉>) -MultipleInstances IgnoreNew` (dalam menit agar jam pecahan tetap berlaku).
 - Principal `-LogonType Interactive` untuk pengguna saat ini, tanpa menyimpan kata sandi.
 - Hasil diverifikasi dengan `Get-ScheduledTask`, lalu ringkasannya dicetak.
-- README menjelaskan opsi "Wake the computer to run this task". Opsional: pemicu kedua pada jam yang Anda pilih sendiri sebelum pra-pembukaan, yang hanya memproses jika run untuk `t` belum `LENGKAP`.
+- README menjelaskan opsi "Wake the computer to run this task". Opsional: pemicu kedua pada jam yang Anda pilih sendiri sebelum pra-pembukaan, yang hanya memproses jika run untuk `t` belum `LENGKAP`. Kedua pengaturan manual ini hilang saat `daftar_jadwal.bat` dijalankan lagi, dan skrip mengingatkan hal itu.
 
 **Perilaku `harian --jadwal`:**
 
@@ -1883,8 +1897,8 @@ Jika broker membulatkan fee berbeda, pakai angka dari trade confirmation.
 | 0 | OK, termasuk "tidak ada data baru" dan `cek` yang hanya berisi peringatan |
 | 1 | Error tak terduga, atau identitas akuntansi backtest gagal |
 | 2 | Data `BELUM_TERSEDIA`, atau `TIDAK_LENGKAP` karena IHSG/K0; backtest tanpa data (§16.1) |
-| 3 | Config/input tidak valid (`cek` dengan ERROR) |
-| 4 | Laporan dibuat, tetapi notifikasi gagal (tidak pernah muncul jika `notifikasi.telegram.aktif: false`) |
+| 3 | Config/input tidak valid (`cek` dengan ERROR); `uji-telegram` dengan `.env` yang belum disiapkan |
+| 4 | Laporan dibuat, tetapi notifikasi gagal (pada run harian tidak pernah muncul jika `notifikasi.telegram.aktif: false`); juga pesan libur `harian --jadwal` atau pesan uji `uji-telegram` yang gagal terkirim |
 | 5 | Proses lain sedang berjalan (kunci) |
 | 6 | Jurnal gagal (terkunci/rusak); laporan tetap dibuat dan dikirim |
 

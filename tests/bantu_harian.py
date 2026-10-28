@@ -37,9 +37,11 @@ class HasilCLI:
 
 
 class ProyekHarian(tb.Proyek):
-    def harian(self, saat: str, *opsi: str, config: Path | None = None) -> HasilCLI:
-        """`harian --offline --tanpa-notifikasi [opsi]` pada waktu virtual `saat` (ISO WIB; tanggal saja = 20:00)."""
-        return self.cli(saat, "harian", "--offline", "--tanpa-notifikasi", *opsi, config=config)
+    def harian(self, saat: str, *opsi: str, config: Path | None = None, notifikasi: bool = False) -> HasilCLI:
+        """`harian --offline [--tanpa-notifikasi] [opsi]` pada waktu virtual `saat` (ISO WIB; tanggal saja = 20:00).
+        `notifikasi=True`: tanpa `--tanpa-notifikasi` (uji Telegram dengan server tiruan)."""
+        bendera = () if notifikasi else ("--tanpa-notifikasi",)
+        return self.cli(saat, "harian", "--offline", *bendera, *opsi, config=config)
 
     def cli(self, saat: str, *argv: str, config: Path | None = None) -> HasilCLI:
         if "T" not in saat:

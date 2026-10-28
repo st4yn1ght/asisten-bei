@@ -46,7 +46,7 @@ FIKTIF = "FIKTIF – KHUSUS UJI"
 WAKTU_UJI = "2026-10-15T20:00:00+07:00"
 TOKEN_PALSU = "123456789:FIKTIF_tokenUjiMain_qwertyZXCV"
 EKOR_TOKEN = "FIKTIF_tokenUjiMain_qwertyZXCV"  # bagian token yang tidak boleh muncul walau sebagian
-PERINTAH_TAHAP_BERIKUT = [
+PERINTAH_TANPA_ENV = [
     ("uji-telegram",),
     ("uji-telegram", "--cari-chat-id"),
 ]
@@ -344,12 +344,20 @@ def test_config_tidak_valid_kode_3_untuk_setiap_perintah(proyek, perintah):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("perintah", PERINTAH_TAHAP_BERIKUT, ids=lambda p: "_".join(p).replace("-", ""))
-def test_perintah_tahap_berikut_belum_tersedia_kode_1(proyek, perintah):
+@pytest.mark.parametrize("perintah", PERINTAH_TANPA_ENV, ids=lambda p: "_".join(p).replace("-", ""))
+def test_uji_telegram_tanpa_env_kode_3_dengan_petunjuk(proyek, perintah):
+    """Semua perintah sudah tersedia (tahap 7); `.env` belum disiapkan = input tidak valid (kode 3)."""
     h = jalankan([*proyek.umum(), *perintah])
-    assert h.kode == 1, h.teks
-    assert "belum tersedia" in h.teks.lower(), h.teks
+    assert h.kode == 3, h.teks
+    assert "belum tersedia" not in h.teks.lower()
+    assert ".env" in h.teks and "@BotFather" in h.teks
     assert DISCLAIMER_TEKS in h.teks
+
+
+def test_tidak_ada_perintah_belum_tersedia():
+    from asisten_bei.__main__ import PERINTAH_BELUM_TERSEDIA
+
+    assert PERINTAH_BELUM_TERSEDIA == {}
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +376,7 @@ def test_perintah_tahap_berikut_belum_tersedia_kode_1(proyek, perintah):
         lambda p: [*p.umum(), "backtest"],
         lambda p: [*p.umum(), "harian", "--offline"],
     ],
-    ids=["cek_valid", "opsi_salah", "tanpa_perintah", "config_hilang", "belum_tersedia", "backtest_tanpa_data",
+    ids=["cek_valid", "opsi_salah", "tanpa_perintah", "config_hilang", "uji_telegram_tanpa_env", "backtest_tanpa_data",
          "harian_tanpa_data"],
 )
 def test_penyaring_rahasia_dipasang_sebelum_apa_pun(proyek, monkeypatch, argv_fn):
@@ -500,12 +508,12 @@ def test_proses_sungguhan_cek_kode_0_dengan_disclaimer(akar_uji, tmp_path_factor
         ([], 3),
         (["hapus"], 3),
         (["cek", "--tidak-ada"], 3),
-        (["uji-telegram"], 1),
+        (["uji-telegram"], 3),  # .env belum disiapkan
         (["backtest"], 2),  # tanpa cache: data belum tersedia (§20.1)
         (["harian", "--offline", "--tanpa-notifikasi"], 2),  # tanpa cache: BELUM_TERSEDIA (§8.6)
         (["jurnal"], 6),  # jurnal belum ada
     ],
-    ids=["help", "tanpa_perintah", "perintah_asing", "opsi_salah", "belum_tersedia", "backtest_tanpa_data",
+    ids=["help", "tanpa_perintah", "perintah_asing", "opsi_salah", "uji_telegram_tanpa_env", "backtest_tanpa_data",
          "harian_tanpa_data", "jurnal_belum_ada"],
 )
 def test_proses_sungguhan_kode_keluar(akar_uji, tmp_path_factory, argv, kode):

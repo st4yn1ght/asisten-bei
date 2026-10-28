@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from . import DISCLAIMER, DISCLAIMER_SINGKAT, __version__, teks, waktu
 from . import jurnal as jr
@@ -49,11 +50,14 @@ from .inputs import (
 )
 from .kalender import Kalender, banner_keterlambatan, batas_bar_final, tentukan_t, tentukan_t1
 from .kondisi_pasar import hitung_kondisi_pasar
-from .operasional import KODE_DATA, KODE_JURNAL, KODE_OK, gabung_kode_keluar, kunci_proses
+from .operasional import KODE_DATA, KODE_JURNAL, KODE_NOTIFIKASI, KODE_OK, gabung_kode_keluar, kunci_proses
 from .portofolio import evaluasi_portofolio
 from .seleksi import HasilSeleksi, KeadaanPortofolio, seleksi
 from .strategi.dasar import daftar_strategi
 from .universe import AturanUniverse
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .notifikasi import telegram as tg
 
 log = logging.getLogger("asisten_bei.harian")
 
@@ -125,6 +129,7 @@ class HasilHarian:
     tidak_ada_data_baru: bool = False
     seleksi: HasilSeleksi | None = None
     catat: jr.HasilCatat | None = None
+    notifikasi: tg.HasilKirim | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +267,15 @@ def jalankan_harian(
             hasil.tidak_ada_data_baru = True
             hasil.pesan = f"tidak ada data baru: run LENGKAP untuk {t.isoformat()} sudah tercatat"
             keluar(f"Tidak ada data baru: run LENGKAP untuk {t.isoformat()} sudah tercatat di jurnal.")
+            tg_cfg = cfg.notifikasi.telegram
+            if tg_cfg.aktif and cfg.jadwal.kirim_pesan_saat_libur and not opsi.tanpa_notifikasi:
+                from .notifikasi import telegram as tg
+                from .notifikasi.pesan import pesan_info
+
+                hasil.notifikasi = tg.kirim(ctx.akar, pesan_info("tidak ada data baru", hasil.pesan))
+                if not hasil.notifikasi.berhasil:
+                    keluar("PERINGATAN: Notifikasi Telegram gagal: " + "; ".join(hasil.notifikasi.galat))
+                    hasil.kode_keluar = KODE_NOTIFIKASI
             keluar(DISCLAIMER_SINGKAT)
             return hasil
 
@@ -415,13 +429,40 @@ def _jalankan_terkunci(ctx, opsi, masukan, baris_porto, kal_manual, t, hasil, ca
         for baris in render_terminal(lap):
             keluar(baris)
     keluar(f"Laporan: {_rel(ctx, str(hasil.folder))}/ (salinan run: {folder_run.name}/)")
-    if not opsi.tanpa_notifikasi and cfg.notifikasi.telegram.aktif:
-        keluar("Catatan: notifikasi Telegram tersedia mulai tahap 7; tidak ada pesan yang dikirim.")
-    keluar(DISCLAIMER)
     kode = [status.kode_keluar]
     if hasil.jurnal_gagal:
         kode.append(KODE_JURNAL)
+    if not opsi.tanpa_notifikasi and cfg.notifikasi.telegram.aktif:
+        hasil.notifikasi = _kirim_laporan(ctx, lap, berkas, folder_run, gabung_kode_keluar(kode), keluar)
+        if not hasil.notifikasi.berhasil:
+            kode.append(KODE_NOTIFIKASI)
+    keluar(DISCLAIMER)
     hasil.kode_keluar = gabung_kode_keluar(kode)
+    return hasil
+
+
+def _kirim_laporan(ctx, lap, berkas: dict[str, Path], folder_run: Path, kode: int, keluar) -> "tg.HasilKirim":
+    """Pesan Telegram §18.3 + lampiran laporan.html. Gagal → peringatan di log, terminal, dan laporan (berkas
+    laporan ditulis ulang memuat peringatan itu), kode keluar 4 oleh pemanggil."""
+    from .laporan import tulis_ulang
+    from .notifikasi import telegram as tg
+    from .notifikasi.pesan import pesan_harian
+
+    cfg = ctx.cfg.notifikasi.telegram
+    lampiran = berkas.get("laporan.html") if cfg.lampirkan_html else None
+    hasil = tg.kirim(ctx.akar, pesan_harian(lap, kode_keluar=kode), lampiran=lampiran,
+                     caption=f"Laporan {lap.t.isoformat()} — {tg.BARIS_DISCLAIMER}",
+                     maks_lampiran_mb=float(cfg.maks_lampiran_mb))
+    if hasil.berhasil:
+        keluar(f"Telegram: {hasil.bagian} pesan terkirim" + (", laporan.html terlampir" if hasil.lampiran else "") + ".")
+    else:
+        teks = "Notifikasi Telegram gagal: " + "; ".join(hasil.galat)
+        log.error("%s", teks)
+        keluar(f"PERINGATAN: {teks}")
+        lap.peringatan.append(teks)
+        for g in tulis_ulang(lap, berkas, folder_run):
+            log.warning("%s", g)
+            keluar(f"PERINGATAN: {g}")
     return hasil
 
 
